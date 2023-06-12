@@ -1,0 +1,5 @@
+find_package(doctest REQUIRED)
+add_executable(libjitter_test main.cpp test.cpp)
+target_link_libraries(libjitter_test PRIVATE doctest::doctest)
+include(${CMAKE_SOURCE_DIR}/dependencies/doctest/scripts/cmake/doctest.cmake)
+doctest_discover_tests(libjitter_test)
