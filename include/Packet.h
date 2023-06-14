@@ -3,11 +3,11 @@
 
 #include <stddef.h>
 
-struct Packet
-{
-    unsigned long sequence_number;
-    void* data;
-    size_t length;
+struct Packet {
+  unsigned long sequence_number;
+  const void *data;
+  size_t length;
+  size_t elements;
 };
 
 #endif
