@@ -36,9 +36,10 @@ class JitterBuffer {
      * 
      * @param packets The packets to enqueue.
      * @param concealment_callback Fired when concealment data needs to be generated.
+     * @param free_callback Fired when the concealment packets have been finished with.
      * @return std::size_t The number of elements actually enqueued, including concealment.
      */
-  std::size_t Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback);
+  std::size_t Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback, const ConcealmentCallback &free_callback);
 
   /**
      * @brief Dequeue a number of packets into the given destination. This must be called from a single reader thread.

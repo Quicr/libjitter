@@ -34,7 +34,7 @@ JitterBuffer::~JitterBuffer() {
   vm_deallocate(mach_task_self(), (vm_address_t) buffer, max_size_bytes * 2);
 }
 
-std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback) {
+std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback, const ConcealmentCallback &free_callback) {
   std::size_t enqueued = 0;
 
   for (const Packet &packet: packets) {
@@ -67,6 +67,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
           enqueued += enqueued_elements;
           last_written_sequence_number = concealment_packet.sequence_number;
         }
+        free_callback(concealment_packets);
       }
     }
 

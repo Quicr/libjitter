@@ -15,16 +15,22 @@ void *JitterInit(const size_t element_size,
 size_t JitterEnqueue(void *libjitter,
                      const Packet packets[],
                      const size_t elements,
-                     const LibJitterConcealmentCallback concealment_callback) {
+                     const LibJitterConcealmentCallback concealment_callback,
+                     const LibJitterConcealmentCallback free_callback) {
   JitterBuffer *buffer = static_cast<JitterBuffer *>(libjitter);
 
   JitterBuffer::ConcealmentCallback callback = [concealment_callback](std::vector<Packet> &packets) {
     concealment_callback(&packets[0], packets.capacity());
   };
 
+  JitterBuffer::ConcealmentCallback intermediate_free = [free_callback](std::vector<Packet> &packets) {
+    free_callback(&packets[0], packets.capacity());
+  };
+
   const std::vector<Packet> vector(packets, packets + elements);
   return buffer->Enqueue(vector,
-                         callback);
+                         callback,
+                         intermediate_free);
 }
 
 size_t JitterDequeue(void *libjitter,

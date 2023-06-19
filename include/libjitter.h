@@ -25,8 +25,9 @@ void *JitterInit(const size_t element_size, const unsigned long clock_rate, cons
 /// @param packets Array of packets of data.
 /// @param elements Number of packets in packets.
 /// @param concealment_callback Callback fires when concealment data is requested.
+/// @param free_callback Callback fires when the concealment packets are finished with.
 /// @return Number of elements enqueued.
-size_t JitterEnqueue(void *libjitter, const struct Packet packets[], const size_t elements, const LibJitterConcealmentCallback concealment_callback);
+size_t JitterEnqueue(void *libjitter, const struct Packet packets[], const size_t elements, const LibJitterConcealmentCallback concealment_callback, const LibJitterConcealmentCallback free_callback);
 
 /// @brief Dequeue num elements from data into buffer.
 /// @param libjitter The jitter buffer instance to dequeue from.
