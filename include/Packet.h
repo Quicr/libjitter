@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 struct Packet {
-  unsigned long long sequence_number;
+  unsigned long sequence_number;
   const void *data;
   size_t length;
   size_t elements;
