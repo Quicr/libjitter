@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-typedef const void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_packets);
+typedef const void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_packets, void* user_data);
 
 /**
    * @brief Construct a new Jitter Buffer object.
@@ -27,7 +27,7 @@ void *JitterInit(const size_t element_size, const unsigned long clock_rate, cons
 /// @param concealment_callback Callback fires when concealment data is requested.
 /// @param free_callback Callback fires when the concealment packets are finished with.
 /// @return Number of elements enqueued.
-size_t JitterEnqueue(void *libjitter, const struct Packet packets[], const size_t elements, const LibJitterConcealmentCallback concealment_callback, const LibJitterConcealmentCallback free_callback);
+size_t JitterEnqueue(void *libjitter, const struct Packet packets[], const size_t elements, const LibJitterConcealmentCallback concealment_callback, const LibJitterConcealmentCallback free_callback, void* user_data);
 
 /// @brief Dequeue num elements from data into buffer.
 /// @param libjitter The jitter buffer instance to dequeue from.
