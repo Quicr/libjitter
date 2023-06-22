@@ -80,6 +80,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
     last_written_sequence_number = packet.sequence_number;
   }
   std::cout << "Enqueued: " << enqueued << std::endl;
+  assert(written >= enqueued * element_size + METADATA_SIZE);
   return enqueued;
 }
 
@@ -103,7 +104,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::size_t copied = CopyOutOfBuffer((std::uint8_t*)&header, METADATA_SIZE, METADATA_SIZE, true);
     assert(copied == METADATA_SIZE);
     std::cout << "[" << header.sequence_number << "] Got" << std::endl;
-
+    assert(written >= header.elements * element_size);
     // Is this packet of data old enough?
     const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::int64_t age = now_ms - header.timestamp;
@@ -111,7 +112,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     if (age < min_length.count()) {
       // Not old enough. Stop here and rewind pointer back to header for the next read.
       UnwindRead(METADATA_SIZE);
-      std::cout << "[" << header.sequence_number << "] not old enough: " << age << std::endl;
+      std::cout << "[" << header.sequence_number << "] Not old enough: " << age << std::endl;
       assert(dequeued_bytes % element_size == 0);
       return dequeued_bytes / element_size;
     }
@@ -128,9 +129,10 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::size_t available_or_space = std::min(available_bytes, destination_length - destination_offset);
     const std::size_t to_dequeue = std::min(available_or_space, required_bytes - destination_offset);
     const std::size_t bytes_dequeued = CopyOutOfBuffer(destination + destination_offset, destination_length - destination_offset, to_dequeue, true);
+    assert(bytes_dequeued > 0);
     assert(bytes_dequeued % element_size == 0); // We should only get whole elements.
     destination_offset += bytes_dequeued;
-    if (bytes_dequeued > 0 && bytes_dequeued < available_bytes) {
+    if (bytes_dequeued < available_bytes) {
       // We didn't fully empty a packet, update the header to reflect what's left.
       UnwindRead(METADATA_SIZE);
       std::cout << "[" << header.sequence_number << "] Only got: " << bytes_dequeued << "/" << available_bytes << std::endl;
@@ -145,11 +147,9 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
     // Otherwise, we read a whole packet and have space for more.
     const std::size_t dequeued_elements = bytes_dequeued / element_size;
-    if (dequeued_elements > header.elements) {
-      std::cerr << "WTF. Got " << dequeued_elements << " but had " << header.elements << std::endl;
-    }
     assert(dequeued_elements <= header.elements); // We should not get more than available.
     dequeued_bytes += bytes_dequeued;
+    std::cout << "Added to dequeued bytes: " << dequeued_bytes << std::endl;
   }
 
   assert(dequeued_bytes % element_size == 0); // We should only get whole elements.
@@ -191,6 +191,7 @@ std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
   assert(enqueued_element_bytes % element_size == 0); // We should write whole elements.
   header.elements = enqueued_element_bytes / element_size;
   memcpy(buffer + header_offset, &header, METADATA_SIZE);
+  written += METADATA_SIZE;
   return header.elements;
 }
 
