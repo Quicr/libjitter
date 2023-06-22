@@ -131,6 +131,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::size_t bytes_dequeued = CopyOutOfBuffer(destination + destination_offset, destination_length - destination_offset, to_dequeue, true);
     assert(bytes_dequeued > 0);
     assert(bytes_dequeued % element_size == 0); // We should only get whole elements.
+    assert(bytes_dequeued <= header.elements * element_size);
     destination_offset += bytes_dequeued;
     if (bytes_dequeued < available_bytes) {
       // We didn't fully empty a packet, update the header to reflect what's left.
@@ -149,7 +150,6 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::size_t dequeued_elements = bytes_dequeued / element_size;
     assert(dequeued_elements <= header.elements); // We should not get more than available.
     dequeued_bytes += bytes_dequeued;
-    std::cout << "Added to dequeued bytes: " << dequeued_bytes << std::endl;
   }
 
   assert(dequeued_bytes % element_size == 0); // We should only get whole elements.
