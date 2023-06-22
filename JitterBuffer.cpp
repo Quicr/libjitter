@@ -129,10 +129,11 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::size_t available_or_space = std::min(available_bytes, destination_length - destination_offset);
     const std::size_t to_dequeue = std::min(available_or_space, required_bytes - destination_offset);
     const std::size_t bytes_dequeued = CopyOutOfBuffer(destination + destination_offset, destination_length - destination_offset, to_dequeue, true);
-    assert(bytes_dequeued > 0);
-    assert(bytes_dequeued % element_size == 0); // We should only get whole elements.
-    assert(bytes_dequeued <= header.elements * element_size);
+    assert(bytes_dequeued <= to_dequeue); // We shouldn't get more than we asked for.
+    assert(bytes_dequeued > 0); // Because we got a header, we should get *something*.
+    assert(bytes_dequeued % element_size == 0); // We should only get whole elements out.
     destination_offset += bytes_dequeued;
+    const std::size_t originally_available = header.elements;
     if (bytes_dequeued < available_bytes) {
       // We didn't fully empty a packet, update the header to reflect what's left.
       UnwindRead(METADATA_SIZE);
@@ -148,7 +149,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
     // Otherwise, we read a whole packet and have space for more.
     const std::size_t dequeued_elements = bytes_dequeued / element_size;
-    assert(dequeued_elements <= header.elements); // We should not get more than available.
+    assert(dequeued_elements <= originally_available); // We should not get more than available.
     dequeued_bytes += bytes_dequeued;
   }
 
