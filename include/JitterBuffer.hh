@@ -53,7 +53,7 @@ class JitterBuffer {
 
   private:
   std::size_t element_size;
-  std::chrono::milliseconds clock_rate;
+  std::uint32_t clock_rate;
   std::chrono::milliseconds min_length;
   std::chrono::milliseconds max_length;
 

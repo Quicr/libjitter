@@ -38,6 +38,27 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
   std::size_t enqueued = 0;
 
   for (const Packet &packet: packets) {
+    // Check depth.
+    // TODO: Add configurable depth check/target.
+    const std::uint32_t current_depth = written / element_size / (float)clock_rate * 1000;
+    if (current_depth < 20) {
+      std::cout << "Depth low warning. Is: " << current_depth << std::endl;
+      const milliseconds target = milliseconds(40);
+      const std::size_t samples_to_target = (target.count() - current_depth) / (float)1000 * clock_rate;
+      std::cout << "Need to make: " << samples_to_target << std::endl;
+      Packet generated = Packet();
+      generated.sequence_number = packet.sequence_number + 1;
+      generated.elements = samples_to_target;
+      std::vector<Packet> depth_packets = std::vector<Packet>();
+      depth_packets.push_back(generated);
+      concealment_callback(depth_packets);
+      for (const Packet& packet : depth_packets) {
+        const std::size_t enqueued_elements = CopyIntoBuffer(packet);
+        assert(enqueued_elements == packet.elements);
+      }
+      free_callback(depth_packets);
+    }
+
     if (packet.sequence_number < last_written_sequence_number) {
       // This should be an update for an existing concealment packet.
       // Update it and continue on.
@@ -47,29 +68,29 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       return packet.elements;
     }
 
-    // // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
-    // if (last_written_sequence_number > 0 && packet.sequence_number != last_written_sequence_number) {
-    //   const std::size_t missing = packet.sequence_number - last_written_sequence_number - 1;
-    //   if (missing > 0) {
-    //     std::cout << "Discontinuity detected. Last written was: " << last_written_sequence_number << " this is: " << packet.sequence_number << std::endl;
-    //     std::vector<Packet> concealment_packets = std::vector<Packet>(missing);
-    //     for (std::size_t sequence_offset = 0; sequence_offset < missing; sequence_offset++) {
-    //       concealment_packets[sequence_offset].sequence_number = last_written_sequence_number + sequence_offset + 1;
-    //     }
-    //     concealment_callback(concealment_packets);
-    //     for (const Packet &concealment_packet: concealment_packets) {
-    //       assert(concealment_packet.length > 0);
-    //       const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
-    //       if (enqueued_elements == 0) {
-    //         // There's no more space.
-    //         break;
-    //       }
-    //       enqueued += enqueued_elements;
-    //       last_written_sequence_number = concealment_packet.sequence_number;
-    //     }
-    //     free_callback(concealment_packets);
-    //   }
-    // }
+    // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
+    if (last_written_sequence_number > 0 && packet.sequence_number != last_written_sequence_number) {
+      const std::size_t missing = packet.sequence_number - last_written_sequence_number - 1;
+      if (missing > 0) {
+        std::cout << "Discontinuity detected. Last written was: " << last_written_sequence_number << " this is: " << packet.sequence_number << std::endl;
+        std::vector<Packet> concealment_packets = std::vector<Packet>(missing);
+        for (std::size_t sequence_offset = 0; sequence_offset < missing; sequence_offset++) {
+          concealment_packets[sequence_offset].sequence_number = last_written_sequence_number + sequence_offset + 1;
+        }
+        concealment_callback(concealment_packets);
+        for (const Packet &concealment_packet: concealment_packets) {
+          assert(concealment_packet.length > 0);
+          const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
+          if (enqueued_elements == 0) {
+            // There's no more space.
+            break;
+          }
+          enqueued += enqueued_elements;
+          last_written_sequence_number = concealment_packet.sequence_number;
+        }
+        free_callback(concealment_packets);
+      }
+    }
 
     // Enqueue this packet of real data.
     const std::size_t enqueued_elements = CopyIntoBuffer(packet);
@@ -109,13 +130,15 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::int64_t age = now_ms - timestamp;
     assert(age >= 0);
-    if (age < min_length.count()) {
-      // Not old enough. Stop here and rewind pointer back to timestamp for the next read.
-      read_offset = (read_offset - METADATA_SIZE) % max_size_bytes;
-      written += METADATA_SIZE;
-      // std::cout << "Not old enough: Was " << age << "/" << min_length.count() << std::endl;
-      return elements_dequeued;
-    } else if (age > max_length.count()) {
+    // if (age < min_length.count()) {
+    //   // Not old enough. Stop here and rewind pointer back to timestamp for the next read.
+    //   read_offset = (read_offset - METADATA_SIZE) % max_size_bytes;
+    //   written += METADATA_SIZE;
+    //   // std::cout << "Not old enough: Was " << age << "/" << min_length.count() << std::endl;
+    //   return elements_dequeued;
+    // }
+    
+    if (age > max_length.count()) {
       // It's too old, throw this away and run to the next.
       // std::cerr << "Age was high: " << age << std::endl;
       written -= element_size;
