@@ -3,6 +3,7 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <iostream>
 
 using namespace std::chrono;
 
@@ -123,7 +124,7 @@ TEST_CASE("libjitter::runover_read") {
       memset(data, index + 1, frame_size * frames_per_packet);
       packet.data = data;
       packet.length = frame_size * frames_per_packet;
-      packet.sequence_number = 1;
+      packet.sequence_number = index;
       packet.elements = frames_per_packet;
       total_frames += packet.elements;
       packets.push_back(packet);
@@ -149,4 +150,44 @@ TEST_CASE("libjitter::runover_read") {
     free(data_pointers[0]);
     free(data_pointers[1]);
     free(dequeued_data);
+}
+
+TEST_CASE("libjitter::concealment") {
+    const std::size_t frame_size = 2*2;
+    const std::size_t frames_per_packet = 480;
+    auto* buffer = new JitterBuffer(frame_size, 48000, milliseconds(100), milliseconds(0));
+
+    // Enqueue some data.
+    std::size_t total_frames = 0;
+    std::vector<Packet> packets = std::vector<Packet>();
+    std::vector<void*> data_pointers = std::vector<void*>();
+    for (std::size_t index = 0; index < 2; index++) {
+      Packet packet = Packet();
+      void *data = malloc(frame_size * frames_per_packet);
+      data_pointers.push_back(data);
+      memset(data, index + 1, frame_size * frames_per_packet);
+      packet.data = data;
+      packet.length = frame_size * frames_per_packet;
+      packet.sequence_number = index == 0 ? 0 : 2;
+      packet.elements = frames_per_packet;
+      total_frames += packet.elements;
+      packets.push_back(packet);
+    }
+
+    void* concealment_data = malloc(1920);
+    memset(concealment_data, 1, 1920);
+    const std::size_t enqueued = buffer->Enqueue(packets,
+            [concealment_data](std::vector<Packet>& packets) {
+              CHECK_EQ(packets.capacity(), 1);
+              CHECK_EQ(packets[0].sequence_number, 1);
+              packets[0].data = concealment_data;
+              packets[0].length = 1920;
+              packets[0].elements = 480;
+            },
+            [concealment_data](const std::vector<Packet>& packets){
+              CHECK_EQ(packets.capacity(), 1);
+              CHECK_EQ(memcmp(packets[0].data, concealment_data, 1920), 0);
+              free(packets[0].data);
+            });
+    CHECK_EQ(enqueued, total_frames * 3 / 2);
 }

@@ -46,29 +46,29 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       return packet.elements;
     }
 
-    // // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
-    // if (last_written_sequence_number > 0 && packet.sequence_number != last_written_sequence_number) {
-    //   const std::size_t missing = packet.sequence_number - last_written_sequence_number - 1;
-    //   if (missing > 0) {
-    //     std::cout << "Discontinuity detected. Last written was: " << last_written_sequence_number << " this is: " << packet.sequence_number << std::endl;
-    //     std::vector<Packet> concealment_packets = std::vector<Packet>(missing);
-    //     for (std::size_t sequence_offset = 0; sequence_offset < missing; sequence_offset++) {
-    //       concealment_packets[sequence_offset].sequence_number = last_written_sequence_number + sequence_offset + 1;
-    //     }
-    //     concealment_callback(concealment_packets);
-    //     for (const Packet &concealment_packet: concealment_packets) {
-    //       assert(concealment_packet.length > 0);
-    //       const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
-    //       if (enqueued_elements == 0) {
-    //         // There's no more space.
-    //         break;
-    //       }
-    //       enqueued += enqueued_elements;
-    //       last_written_sequence_number = concealment_packet.sequence_number;
-    //     }
-    //     free_callback(concealment_packets);
-    //   }
-    // }
+     // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
+     if (packet.sequence_number != last_written_sequence_number) {
+       const std::size_t missing = packet.sequence_number - last_written_sequence_number - 1;
+       if (missing > 0) {
+         std::cout << "Discontinuity detected. Last written was: " << last_written_sequence_number << " this is: " << packet.sequence_number << std::endl;
+         std::vector<Packet> concealment_packets = std::vector<Packet>(missing);
+         for (std::size_t sequence_offset = 0; sequence_offset < missing; sequence_offset++) {
+           concealment_packets[sequence_offset].sequence_number = last_written_sequence_number + sequence_offset + 1;
+         }
+         concealment_callback(concealment_packets);
+         for (const Packet &concealment_packet: concealment_packets) {
+           if (concealment_packet.length == 0) continue;
+           const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
+           if (enqueued_elements == 0) {
+             // There's no more space.
+             break;
+           }
+           enqueued += enqueued_elements;
+           last_written_sequence_number = concealment_packet.sequence_number;
+         }
+         free_callback(concealment_packets);
+       }
+     }
 
     // Enqueue this packet of real data.
     const std::size_t enqueued_elements = CopyIntoBuffer(packet);

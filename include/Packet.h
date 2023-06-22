@@ -5,7 +5,7 @@
 
 struct Packet {
   unsigned long sequence_number;
-  const void *data;
+  void *data;
   size_t length;
   size_t elements;
 };
