@@ -6,6 +6,12 @@
 #include <functional>
 #include <vector>
 
+struct Header { 
+   std::uint32_t sequence_number;
+   std::size_t elements;
+   std::uint64_t timestamp;
+};
+
 class JitterBuffer {
   public:
   /**
@@ -75,4 +81,8 @@ class JitterBuffer {
   std::size_t CopyIntoBuffer(const Packet &packet);
   std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length);
   std::size_t CopyOutOfBuffer(std::uint8_t *destination, std::size_t length, std::size_t required_bytes, bool strict);
+  void UnwindRead(std::size_t unwind_bytes);
+  void ForwardRead(std::size_t forward_bytes);
+  void UnwindWrite(std::size_t unwind_bytes);
+  void ForwardWrite(std::size_t forward_bytes);
 };
