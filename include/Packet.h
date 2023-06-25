@@ -8,6 +8,13 @@ struct Packet {
   void *data;
   size_t length;
   size_t elements;
+
+  bool operator ==(const Packet& other) const {
+    return sequence_number == other.sequence_number &&
+           data == other.data &&
+           length == other.length &&
+           elements == other.elements;
+  }
 };
 
 #endif

@@ -6,14 +6,17 @@
 using namespace std::chrono;
 
 const std::size_t METADATA_SIZE = sizeof(std::int64_t);
-// const std::size_t METADATA_SIZE = 0;
 
-JitterBuffer::JitterBuffer(std::size_t element_size, std::uint32_t clock_rate, milliseconds max_length, milliseconds min_length)
+JitterBuffer::JitterBuffer(const std::size_t element_size, const std::uint32_t clock_rate, const milliseconds max_length, const milliseconds min_length)
     : element_size(element_size),
       clock_rate(clock_rate),
       min_length(min_length),
-      max_length(max_length) {
-  // VM Address trick for automagic wrap around.
+      max_length(max_length),
+      read_offset(0),
+      write_offset(0),
+      last_written_sequence_number(0),
+      written(0) {
+  // VM Address trick for automatic wrap around.
   max_size_bytes = round_page(max_length.count() * (clock_rate / 1000) * (element_size + METADATA_SIZE));
   vm_address_t vm_address;
   kern_return_t result = vm_allocate(mach_task_self(), &vm_address, max_size_bytes * 2, VM_FLAGS_ANYWHERE);
@@ -26,7 +29,8 @@ JitterBuffer::JitterBuffer(std::size_t element_size, std::uint32_t clock_rate, m
   result = vm_remap(mach_task_self(), &virtual_address, max_size_bytes, 0, 0, mach_task_self(), vm_address, 0, &current, &max, VM_INHERIT_DEFAULT);
   assert(result == ERR_SUCCESS);
   assert(virtual_address == vm_address + max_size_bytes);
-  buffer = (std::uint8_t *) virtual_address;
+  buffer = reinterpret_cast<std::uint8_t *>(virtual_address);
+  memset(buffer, 0, max_size_bytes);
   std::cout << "Allocated JitterBuffer with: " << max_size_bytes << " bytes" << std::endl;
 }
 
@@ -47,29 +51,29 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       return packet.elements;
     }
 
-    // // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
-    // if (last_written_sequence_number > 0 && packet.sequence_number != last_written_sequence_number) {
-    //   const std::size_t missing = packet.sequence_number - last_written_sequence_number - 1;
-    //   if (missing > 0) {
-    //     std::cout << "Discontinuity detected. Last written was: " << last_written_sequence_number << " this is: " << packet.sequence_number << std::endl;
-    //     std::vector<Packet> concealment_packets = std::vector<Packet>(missing);
-    //     for (std::size_t sequence_offset = 0; sequence_offset < missing; sequence_offset++) {
-    //       concealment_packets[sequence_offset].sequence_number = last_written_sequence_number + sequence_offset + 1;
-    //     }
-    //     concealment_callback(concealment_packets);
-    //     for (const Packet &concealment_packet: concealment_packets) {
-    //       assert(concealment_packet.length > 0);
-    //       const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
-    //       if (enqueued_elements == 0) {
-    //         // There's no more space.
-    //         break;
-    //       }
-    //       enqueued += enqueued_elements;
-    //       last_written_sequence_number = concealment_packet.sequence_number;
-    //     }
-    //     free_callback(concealment_packets);
-    //   }
-    // }
+   // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
+   if (last_written_sequence_number > 0 && packet.sequence_number != last_written_sequence_number) {
+     const std::size_t missing = packet.sequence_number - last_written_sequence_number - 1;
+     if (missing > 0) {
+       std::cout << "Discontinuity detected. Last written was: " << last_written_sequence_number << " this is: " << packet.sequence_number << std::endl;
+       std::vector<Packet> concealment_packets = std::vector<Packet>(missing);
+       for (std::size_t sequence_offset = 0; sequence_offset < missing; sequence_offset++) {
+         concealment_packets[sequence_offset].sequence_number = last_written_sequence_number + sequence_offset + 1;
+       }
+       concealment_callback(concealment_packets);
+       for (const Packet &concealment_packet: concealment_packets) {
+         assert(concealment_packet.length > 0);
+         const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
+         if (enqueued_elements == 0) {
+           // There's no more space.
+           break;
+         }
+         enqueued += enqueued_elements;
+         last_written_sequence_number = concealment_packet.sequence_number;
+       }
+       free_callback(concealment_packets);
+     }
+   }
 
     // Enqueue this packet of real data.
     const std::size_t enqueued_elements = CopyIntoBuffer(packet);
@@ -113,9 +117,11 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       // Not old enough. Stop here and rewind pointer back to timestamp for the next read.
       read_offset = (read_offset - METADATA_SIZE) % max_size_bytes;
       written += METADATA_SIZE;
-      // std::cout << "Not old enough: Was " << age << "/" << min_length.count() << std::endl;
+      // std::cout << "Not old  enough: Was " << age << "/" << min_length.count() << std::endl;
       return elements_dequeued;
-    } else if (age > max_length.count()) {
+    }
+
+    if (age > max_length.count()) {
       // It's too old, throw this away and run to the next.
       // std::cerr << "Age was high: " << age << std::endl;
       written -= element_size;
@@ -147,13 +153,13 @@ bool JitterBuffer::Update(const Packet &packet) {
 }
 
 std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
-  // As long we're writing whole elements, we can write partial packets.
+  // As long as we're writing whole elements, we can write partial packets.
   std::size_t offset = 0;
   std::size_t elements_enqueued = 0;
+
   for (std::size_t element = 0; element < packet.elements; element++) {
     // Copy timestamp into buffer.
     const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    assert(sizeof(now_ms) == METADATA_SIZE);
     const std::size_t copied = CopyIntoBuffer((const std::uint8_t *) &now_ms, METADATA_SIZE);
     if (copied == 0) {
       break;
@@ -213,4 +219,12 @@ std::size_t JitterBuffer::CopyOutOfBuffer(std::uint8_t *destination, const std::
   read_offset = (read_offset + available) % max_size_bytes;
   written -= available;
   return available;
+}
+
+std::uint8_t* JitterBuffer::GetReadPointer(const std::size_t read_offset_elements) {
+  const std::size_t read_offset_bytes = read_offset_elements * (element_size + METADATA_SIZE);
+  if (read_offset_bytes >= max_size_bytes) {
+    throw std::runtime_error("Offset cannot be greater than the size of the buffer");
+  }
+  return buffer + read_offset_bytes;
 }

@@ -24,7 +24,7 @@ class JitterBuffer {
      * @param max_length The maximum lenghth of the buffer in milliseconds.
      * @param min_length The minimum age of packets in milliseconds before eligible for dequeue.
      */
-  JitterBuffer(const std::size_t element_size, const std::uint32_t clock_rate, const std::chrono::milliseconds max_length, const std::chrono::milliseconds min_length);
+  JitterBuffer(std::size_t element_size, std::uint32_t clock_rate, std::chrono::milliseconds max_length, std::chrono::milliseconds min_length);
 
   /**
     * @brief Destroy the Jitter Buffer object
@@ -51,6 +51,13 @@ class JitterBuffer {
      */
   std::size_t Dequeue(std::uint8_t *destination, const std::size_t &destination_length, const std::size_t &elements);
 
+  /**
+   * @brief Get a read pointer for the buffer at the given offset.
+   * @param read_offset_elements Offset in elements.
+   * @return Pointer into the buffer at the requested offset.
+   */
+  std::uint8_t* GetReadPointer(std::size_t read_offset_elements);
+
   private:
   std::size_t element_size;
   std::chrono::milliseconds clock_rate;
@@ -66,6 +73,6 @@ class JitterBuffer {
 
   bool Update(const Packet &packet);
   std::size_t CopyIntoBuffer(const Packet &packet);
-  std::size_t CopyIntoBuffer(const std::uint8_t *source, const std::size_t length);
-  std::size_t CopyOutOfBuffer(std::uint8_t *destination, const std::size_t length, const std::size_t required_bytes, const bool strict);
+  std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length);
+  std::size_t CopyOutOfBuffer(std::uint8_t *destination, std::size_t length, std::size_t required_bytes, bool strict);
 };

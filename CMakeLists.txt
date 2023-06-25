@@ -11,6 +11,6 @@ target_include_directories(clibjitter PUBLIC include)
 target_link_libraries(clibjitter PUBLIC libjitter)
 set_property(TARGET clibjitter PROPERTY CXX_STANDARD 11)
 
-if(BUILD_TESTING AND LIBJITTER_BUILD_TESTS)
+if (BUILD_TESTING AND LIBJITTER_BUILD_TESTS)
     add_subdirectory(tests)
-endif(BUILD_TESTING AND LIBJITTER_BUILD_TESTS)
+endif (BUILD_TESTING AND LIBJITTER_BUILD_TESTS)
