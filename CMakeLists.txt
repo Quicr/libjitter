@@ -4,12 +4,12 @@ project(libjitter)
 
 add_library(libjitter JitterBuffer.cpp include/JitterBuffer.hh include/Packet.h)
 target_include_directories(libjitter PUBLIC include)
-set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 11)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 17)
 
 add_library(clibjitter SHARED libjitter.cpp include/libjitter.h include/Packet.h)
 target_include_directories(clibjitter PUBLIC include)
 target_link_libraries(clibjitter PUBLIC libjitter)
-set_property(TARGET clibjitter PROPERTY CXX_STANDARD 11)
+set_property(TARGET clibjitter PROPERTY CXX_STANDARD 17)
 
 if (BUILD_TESTING AND LIBJITTER_BUILD_TESTS)
     add_subdirectory(tests)

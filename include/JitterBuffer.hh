@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <vector>
+#include <optional>
 
 struct Header { 
    std::uint32_t sequence_number;
@@ -14,6 +15,9 @@ struct Header {
 
 class JitterBuffer {
   public:
+      const static std::size_t METADATA_SIZE = sizeof(Header);
+
+
   /**
      * @brief Provides concealment data.
      * 
@@ -26,11 +30,12 @@ class JitterBuffer {
      * @brief Construct a new Jitter Buffer object.
      * 
      * @param element_size Size of held elements in bytes.
+     * @param packet_elements Number of elements in packets.
      * @param clock_rate Clock rate of elements contained in Hz. E.g 48kHz audio is 48000.
      * @param max_length The maximum lenghth of the buffer in milliseconds.
      * @param min_length The minimum age of packets in milliseconds before eligible for dequeue.
      */
-  JitterBuffer(std::size_t element_size, std::uint32_t clock_rate, std::chrono::milliseconds max_length, std::chrono::milliseconds min_length);
+  JitterBuffer(std::size_t element_size, std::size_t packet_elements, std::uint32_t clock_rate, std::chrono::milliseconds max_length, std::chrono::milliseconds min_length);
 
   /**
     * @brief Destroy the Jitter Buffer object
@@ -58,14 +63,21 @@ class JitterBuffer {
   std::size_t Dequeue(std::uint8_t *destination, const std::size_t &destination_length, const std::size_t &elements);
 
   /**
-   * @brief Get a read pointer for the buffer at the given offset.
-   * @param read_offset_elements Offset in elements.
+   * @brief Get a read pointer for the buffer at the given packet offset.
+   * @param read_offset_elements Offset in packets.
    * @return Pointer into the buffer at the requested offset.
    */
-  std::uint8_t* GetReadPointer(std::size_t read_offset_elements);
+  std::uint8_t* GetReadPointerAtPacketOffset(std::size_t read_offset_elements) const;
+
+  /**
+   *
+   * @return Current depth of the buffer in milliseconds.
+   */
+  std::chrono::milliseconds GetCurrentDepth() const;
 
   private:
   std::size_t element_size;
+  std::size_t packet_elements;
   std::chrono::milliseconds clock_rate;
   std::chrono::milliseconds min_length;
   std::chrono::milliseconds max_length;
@@ -75,7 +87,8 @@ class JitterBuffer {
   std::size_t write_offset;
   std::size_t max_size_bytes;
   std::atomic<std::size_t> written;
-  unsigned long last_written_sequence_number;
+  std::atomic<std::size_t> written_elements;
+  std::optional<unsigned long> last_written_sequence_number;
 
   bool Update(const Packet &packet);
   std::size_t CopyIntoBuffer(const Packet &packet);

@@ -2,6 +2,7 @@
 
 #include "JitterBuffer.hh"
 #include <chrono>
+#include <memory>
 
 static Packet makeTestPacket(const unsigned long sequence_number, const std::size_t frame_size, const std::size_t frames_per_packet) {
   Packet packet{};
@@ -14,7 +15,11 @@ static Packet makeTestPacket(const unsigned long sequence_number, const std::siz
   return packet;
 }
 
-static void construct() {
-  auto *buffer = new JitterBuffer(2 * 2, 48000, std::chrono::milliseconds(100), std::chrono::milliseconds(20));
-  delete (buffer);
+static bool checkPacketInSlot(const JitterBuffer* buffer, const Packet& packet, const std::size_t slot) {
+  const std::uint8_t *read = buffer->GetReadPointerAtPacketOffset(slot);
+  Header header{};
+  memcpy(&header, read - JitterBuffer::METADATA_SIZE, JitterBuffer::METADATA_SIZE);
+  return packet.sequence_number == header.sequence_number &&
+         packet.elements == header.elements &&
+         memcmp(packet.data, read, packet.length) == 0;
 }

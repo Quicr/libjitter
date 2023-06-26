@@ -2,6 +2,7 @@
 #define LIBJITTER_PACKET_H
 
 #include <stddef.h>
+#include <string.h>
 
 struct Packet {
   unsigned long sequence_number;
@@ -11,7 +12,7 @@ struct Packet {
 
   bool operator ==(const Packet& other) const {
     return sequence_number == other.sequence_number &&
-           data == other.data &&
+           memcmp(data, other.data, length) == 0 &&
            length == other.length &&
            elements == other.elements;
   }

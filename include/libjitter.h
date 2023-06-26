@@ -15,10 +15,10 @@ typedef const void (*LibJitterConcealmentCallback)(struct Packet *, const size_t
    *
    * @param element_size Size of held elements in bytes.
    * @param clock_rate Clock rate of elements contained in Hz. E.g 48kHz audio is 48000.
-   * @param max_length The maximum lenghth of the buffer in milliseconds.
+   * @param max_length The maximum length of the buffer in milliseconds.
    * @param mix_length The minimum age of packets in milliseconds before eligible for dequeue.
    */
-void *JitterInit(size_t element_size, unsigned long clock_rate, unsigned long max_length_ms, unsigned long min_length_ms);
+void *JitterInit(size_t element_size, size_t packet_elements, unsigned long clock_rate, unsigned long max_length_ms, unsigned long min_length_ms);
 
 /// @brief Enqueue packets of data.
 /// @param libjitter
