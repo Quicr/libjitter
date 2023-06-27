@@ -90,7 +90,7 @@ class JitterBuffer {
   std::atomic<std::size_t> written_elements;
   std::optional<unsigned long> last_written_sequence_number;
 
-  bool Update(const Packet &packet);
+  std::size_t Update(const Packet &packet);
   std::size_t CopyIntoBuffer(const Packet &packet);
   std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length);
   std::size_t CopyOutOfBuffer(std::uint8_t *destination, std::size_t length, std::size_t required_bytes, bool strict);

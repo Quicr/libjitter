@@ -46,7 +46,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       // This might be an update for an existing concealment packet.
       // Update it and continue on.
       // TODO: Handle sequence rollover.
-      Update(packet);
+      enqueued += Update(packet);
       continue;
     } else if (last_written_sequence_number.has_value() && packet.sequence_number != last_written_sequence_number) {
      // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
@@ -160,44 +160,21 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
   return dequeued_elements;
 }
 
-bool JitterBuffer::Update(const Packet &packet) {
-  // This packet will have had a timestamped concealment
-  // packet in the buffer.
-  // We need to try and calculate the offset.
-  // Written will g
-  const std::size_t offset_packets = last_written_sequence_number.value() - packet.sequence_number;
+std::size_t JitterBuffer::Update(const Packet &packet) {
+  const std::size_t offset_packets = 1 + (last_written_sequence_number.value() - packet.sequence_number);
   const std::size_t offset_bytes = offset_packets * ((element_size * packet_elements) + METADATA_SIZE);
   const std::size_t offset_write_offset = (write_offset - offset_bytes) % max_size_bytes;
   Header header{};
   memcpy(&header, buffer + offset_write_offset, METADATA_SIZE);
   if (packet.sequence_number != header.sequence_number) {
+    // TODO: What do we do here.
     std::cout << "Our update estimation seemed wrong. Expected: " << packet.sequence_number << " but got: " << header.sequence_number << std::endl;
-    return false;
+    return 0;
   }
 
-  const milliseconds offset_ms = milliseconds(static_cast<std::int64_t>(offset_packets * float(1000)/clock_rate.count()));
-  // If offset_ms is less than 1 we can't identify!
-  // TODO: What do we do in this case?
-
-
-  if (GetCurrentDepth() < offset_ms) {
-    // TODO: I don't think we can do anything with this.
-    assert(false);
-    return false;
-  }
-
-  // Otherwise, we need to go back and try and find it.
-
-
-
-
-  // Find the offset at which this packet should live.
-  assert(last_written_sequence_number.has_value());
-  std::size_t age_in_sequence = last_written_sequence_number.value() - packet.sequence_number;
-  assert(age_in_sequence > 0);
-  std::size_t negative_offset = write_offset - age_in_sequence * (element_size + METADATA_SIZE) + METADATA_SIZE;
-  memcpy(buffer + negative_offset, packet.data, packet.length);
-  return true;
+  // TODO: Assuming we're at the right place here for now.
+  memcpy(buffer + offset_write_offset + METADATA_SIZE, packet.data, header.elements * element_size);
+  return header.elements;
 }
 
 std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
