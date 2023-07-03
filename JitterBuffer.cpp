@@ -22,22 +22,25 @@ JitterBuffer::JitterBuffer(const std::size_t element_size, const std::size_t pac
   static_assert(std::atomic<std::size_t>::is_always_lock_free);
 
   // VM Address trick for automatic wrap around.
-  max_size_bytes = round_page(max_length.count() * (clock_rate / 1000) * (element_size + METADATA_SIZE));
-  vm_address_t vm_address;
-  kern_return_t result = vm_allocate(mach_task_self(), &vm_address, max_size_bytes * 2, VM_FLAGS_ANYWHERE);
+  const std::size_t buffer_size = max_length.count() * (clock_rate / 1000)  * (element_size + METADATA_SIZE);
+  max_size_bytes = round_page(buffer_size);
+  vm_address_t buffer_address;
+  kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, max_size_bytes * 2, VM_FLAGS_ANYWHERE);
   assert(result == ERR_SUCCESS);
-  result = vm_deallocate(mach_task_self(), vm_address + max_size_bytes, max_size_bytes);
+  result = vm_deallocate(mach_task_self(), buffer_address + max_size_bytes, max_size_bytes);
   assert(result == ERR_SUCCESS);
-  vm_address_t virtual_address = vm_address + max_size_bytes;
+  vm_address_t virtual_address = buffer_address + max_size_bytes;
   vm_prot_t current;
   vm_prot_t max;
-  result = vm_remap(mach_task_self(), &virtual_address, max_size_bytes, 0, 0, mach_task_self(), vm_address, 0, &current, &max, VM_INHERIT_DEFAULT);
+  result = vm_remap(mach_task_self(), &virtual_address, max_size_bytes, 0, 0, mach_task_self(), buffer_address, 0, &current, &max, VM_INHERIT_DEFAULT);
   assert(result == ERR_SUCCESS);
-  assert(virtual_address == vm_address + max_size_bytes);
-  buffer = reinterpret_cast<std::uint8_t *>(virtual_address);
+  assert(virtual_address == buffer_address + max_size_bytes);
+  buffer = reinterpret_cast<std::uint8_t *>(buffer_address);
+
+  // Done.
   memset(buffer, 0, max_size_bytes);
-  std::cout << "Allocated JitterBuffer with: " << max_size_bytes << " bytes" << std::endl;
   last_written_sequence_number.reset();
+  std::cout << "Allocated JitterBuffer with: " << max_size_bytes << " bytes" << std::endl;
 }
 
 JitterBuffer::~JitterBuffer() {
@@ -48,10 +51,10 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
   std::size_t enqueued = 0;
 
   for (const Packet &packet: packets) {
+    // TODO: Handle sequence rollover.
     if (packet.sequence_number < last_written_sequence_number) {
       // This might be an update for an existing concealment packet.
       // Update it and continue on.
-      // TODO: Handle sequence rollover.
       enqueued += Update(packet);
       continue;
     } else if (last_written_sequence_number.has_value() && packet.sequence_number != last_written_sequence_number) {
@@ -215,7 +218,8 @@ std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::siz
   }
 
   // Copy data into the buffer.
-  memcpy(buffer + write_offset + offset_offset_bytes, src, length);
+  const std::size_t offset = (write_offset + offset_offset_bytes) % max_size_bytes;
+  memcpy(buffer + offset, src, length);
   if (!manual_increment) ForwardWrite(length);
   assert(written <= max_size_bytes);
   return length;
