@@ -25,7 +25,10 @@ JitterBuffer::JitterBuffer(const std::size_t element_size, const std::size_t pac
   max_size_bytes = round_page(max_length.count() * (clock_rate / 1000) * (element_size + METADATA_SIZE));
   vm_address_t vm_address;
   kern_return_t result = vm_allocate(mach_task_self(), &vm_address, max_size_bytes * 2, VM_FLAGS_ANYWHERE);
-  assert(result == ERR_SUCCESS);
+  if (result != ERR_SUCCESS) {
+    std::cerr << "Failed to allocate: " << result << std::endl;
+    assert(false);
+  }
   result = vm_deallocate(mach_task_self(), vm_address + max_size_bytes, max_size_bytes);
   assert(result == ERR_SUCCESS);
   vm_address_t virtual_address = vm_address + max_size_bytes;
