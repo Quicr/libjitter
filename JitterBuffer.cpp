@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <iostream>
 #include <mach/mach.h>
+#include <type_traits>
 
 using namespace std::chrono;
 
@@ -15,6 +16,11 @@ JitterBuffer::JitterBuffer(const std::size_t element_size, const std::size_t pac
       write_offset(0),
       written(0),
       written_elements(0) {
+  // Ensure atomic variables are lock free.
+  static_assert(std::is_same<decltype(written), std::atomic<std::size_t>>::value);
+  static_assert(std::is_same<decltype(written_elements), std::atomic<std::size_t>>::value);
+  static_assert(std::atomic<std::size_t>::is_always_lock_free);
+
   // VM Address trick for automatic wrap around.
   max_size_bytes = round_page(max_length.count() * (clock_rate / 1000) * (element_size + METADATA_SIZE));
   vm_address_t vm_address;
@@ -201,6 +207,8 @@ std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
 }
 
 std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::size_t length) {
+
+  assert(written > 0);
 
   // Ensure we have enough space.
   const std::size_t space = max_size_bytes - written;

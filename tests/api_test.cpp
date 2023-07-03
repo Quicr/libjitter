@@ -272,3 +272,20 @@ TEST_CASE("libjitter::update_existing") {
     CHECK_EQ(enqueued, updatePacket.elements);
   }
 }
+
+TEST_CASE("libjitter::fill_buffer") {
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  bool enqueued = true;
+  std::size_t elements_enqueued = 0;
+  std::uint32_t sequence_number = 0;
+  while (enqueued) {
+    Packet packet = makeTestPacket(sequence_number++, frame_size, frames_per_packet);
+    std::vector<Packet> packets = std::vector<Packet>();
+    packets.push_back(packet);
+    const std::size_t enqueued_this_iteration = buffer->Enqueue(packets, [](const std::vector<Packet> &packets){}, [](const std::vector<Packet> &packets){});
+    elements_enqueued += enqueued_this_iteration;
+    if (enqueued_this_iteration != packet.elements) break;
+  }
+}
