@@ -72,7 +72,6 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
        concealment_callback(concealment_packets);
        for (const Packet &concealment_packet: concealment_packets) {
          if (concealment_packet.length == 0) continue;
-         std::cout << "Enqueuing concealment: " << concealment_packet.sequence_number << std::endl;
          const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
          if (enqueued_elements == 0) {
            // There's no more space.
@@ -86,7 +85,6 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
    }
 
     // Enqueue this packet of real data.
-   std::cout << "Enqueuing real data: " << packet.sequence_number << std::endl;
     const std::size_t enqueued_elements = CopyIntoBuffer(packet);
     if (enqueued_elements == 0) {
       // There's no more space.
@@ -177,7 +175,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   memcpy(&header, buffer + offset_write_offset, METADATA_SIZE);
   if (packet.sequence_number != header.sequence_number) {
     // TODO: What do we do here.
-    std::cout << "Our update estimation seemed wrong. Expected: " << packet.sequence_number << " but got: " << header.sequence_number << std::endl;
+    std::cerr << "Our update estimation seemed wrong. Expected: " << packet.sequence_number << " but got: " << header.sequence_number << std::endl;
     return 0;
   }
 
@@ -216,7 +214,7 @@ std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::siz
   // Ensure we have enough space.
   const std::size_t space = max_size_bytes - written;
   if (length > space) {
-    std::cout << "No space! Wanted: " << length << " space: " << space << std::endl;
+    std::cerr << "No space! Wanted: " << length << " space: " << space << std::endl;
     return 0;
   }
 
@@ -224,7 +222,7 @@ std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::siz
   memcpy(buffer + write_offset, src, length);
   ForwardWrite(length);
   if (written > max_size_bytes) {
-    std::cout << "Written: " << written << " but max: " << max_size_bytes << std::endl;
+    std::cerr << "Written: " << written << " but max: " << max_size_bytes << std::endl;
   }
   assert(written <= max_size_bytes);
   return length;
