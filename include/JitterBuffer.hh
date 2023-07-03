@@ -75,6 +75,10 @@ class JitterBuffer {
    */
   std::chrono::milliseconds GetCurrentDepth() const;
 
+#ifdef LIBJITTER_BUILD_TESTS
+  friend class BufferInspector;
+#endif
+
   private:
   std::size_t element_size;
   std::size_t packet_elements;
@@ -92,7 +96,7 @@ class JitterBuffer {
 
   std::size_t Update(const Packet &packet);
   std::size_t CopyIntoBuffer(const Packet &packet);
-  std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length);
+  std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length, bool manual_increment, std::size_t offset_offset_bytes);
   std::size_t CopyOutOfBuffer(std::uint8_t *destination, std::size_t length, std::size_t required_bytes, bool strict);
   void UnwindRead(std::size_t unwind_bytes);
   void ForwardRead(std::size_t forward_bytes);

@@ -5,6 +5,7 @@
 #include <memory>
 
 static Packet makeTestPacket(const unsigned long sequence_number, const std::size_t frame_size, const std::size_t frames_per_packet) {
+  assert(frame_size >= sizeof(int));
   Packet packet{};
   packet.sequence_number = sequence_number;
   void *data = malloc(frame_size * frames_per_packet);

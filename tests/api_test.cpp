@@ -10,17 +10,17 @@ using namespace std::chrono;
 TEST_CASE("libjitter::construct") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
 }
 
 TEST_CASE("libjitter::enqueue") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
   Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
   std::vector<Packet> packets = std::vector<Packet>();
   packets.push_back(packet);
-  const std::size_t enqueued = buffer->Enqueue(
+  const std::size_t enqueued = buffer.Enqueue(
           packets,
           [](const std::vector<Packet> &packets) {},
           [](const std::vector<Packet> &packets) {});
@@ -41,7 +41,7 @@ TEST_CASE("libjitter::enqueue_dequeue")
 {
   const std::size_t frame_size = 2*2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
 
   // Enqueue some data.
   Packet packet = Packet();
@@ -53,14 +53,14 @@ TEST_CASE("libjitter::enqueue_dequeue")
   packet.elements = frames_per_packet;
   std::vector<Packet> packets = std::vector<Packet>();
   packets.push_back(packet);
-  const std::size_t enqueued = buffer->Enqueue(packets,
+  const std::size_t enqueued = buffer.Enqueue(packets,
           [](const std::vector<Packet>& packets){},
           [](const std::vector<Packet>& packets){});
   CHECK_EQ(enqueued, packet.elements);
 
   // Dequeue should get this data.
   void* dequeued_data = malloc(frame_size * frames_per_packet);
-  std::size_t dequeued_frames = buffer->Dequeue(static_cast<std::uint8_t*>(dequeued_data), frame_size * frames_per_packet, frames_per_packet);
+  std::size_t dequeued_frames = buffer.Dequeue(static_cast<std::uint8_t*>(dequeued_data), frame_size * frames_per_packet, frames_per_packet);
   REQUIRE_EQ(dequeued_frames, frames_per_packet);
   CHECK_EQ(memcmp(dequeued_data, data, frame_size * frames_per_packet), 0);
 

@@ -25,10 +25,7 @@ JitterBuffer::JitterBuffer(const std::size_t element_size, const std::size_t pac
   max_size_bytes = round_page(max_length.count() * (clock_rate / 1000) * (element_size + METADATA_SIZE));
   vm_address_t vm_address;
   kern_return_t result = vm_allocate(mach_task_self(), &vm_address, max_size_bytes * 2, VM_FLAGS_ANYWHERE);
-  if (result != ERR_SUCCESS) {
-    std::cerr << "Failed to allocate: " << result << std::endl;
-    assert(false);
-  }
+  assert(result == ERR_SUCCESS);
   result = vm_deallocate(mach_task_self(), vm_address + max_size_bytes, max_size_bytes);
   assert(result == ERR_SUCCESS);
   vm_address_t virtual_address = vm_address + max_size_bytes;
@@ -86,7 +83,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
 
     // Enqueue this packet of real data.
     const std::size_t enqueued_elements = CopyIntoBuffer(packet);
-    if (enqueued_elements == 0) {
+    if (enqueued_elements == 0 && packet.elements > 0) {
       // There's no more space.
       std::cout << "Enqueue has no more space. This packet will be lost " << packet.sequence_number << std::endl;
       break;
@@ -94,7 +91,6 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
     enqueued += enqueued_elements;
     last_written_sequence_number = packet.sequence_number;
   }
-  assert(written >= enqueued * element_size + METADATA_SIZE);
   return enqueued;
 }
 
@@ -116,6 +112,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     Header header{};
     const std::size_t copied = CopyOutOfBuffer((std::uint8_t*)&header, METADATA_SIZE, METADATA_SIZE, true);
     assert(copied == METADATA_SIZE);
+    assert(header.elements > 0);
     // Is this packet of data old enough?
     const std::uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::uint64_t age = now_ms - header.timestamp;
@@ -186,30 +183,29 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
 
 std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
   // Prepare to write the header.
+  const std::size_t space = max_size_bytes - written;
+  if (space < METADATA_SIZE) {
+    return 0;
+  }
   const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
   Header header = Header();
   header.timestamp = now_ms;
   header.sequence_number = packet.sequence_number;
   const std::size_t header_offset = write_offset;
-  ForwardWrite(METADATA_SIZE);
-
-  const std::size_t enqueued = CopyIntoBuffer(static_cast<std::uint8_t *>(packet.data), element_size * packet.elements);
+  const std::size_t enqueued = CopyIntoBuffer(static_cast<std::uint8_t *>(packet.data), element_size * packet.elements, true, METADATA_SIZE);
   const std::size_t remainder = enqueued % element_size;
-  if (remainder > 0) {
-    // Unwind any partial data.
-    UnwindWrite(remainder);
-  }
   const std::size_t enqueued_element_bytes = enqueued - remainder;
   assert(enqueued_element_bytes % element_size == 0); // We should write whole elements.
   header.elements = enqueued_element_bytes / element_size;
   memcpy(buffer + header_offset, &header, METADATA_SIZE);
+  ForwardWrite(enqueued_element_bytes + METADATA_SIZE);
+  assert(written <= max_size_bytes);
   written_elements += header.elements;
   return header.elements;
 }
 
-std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::size_t length) {
-
-  assert(written > 0);
+std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::size_t length, const bool manual_increment, const std::size_t offset_offset_bytes) {
+  assert(written <= max_size_bytes);
 
   // Ensure we have enough space.
   const std::size_t space = max_size_bytes - written;
@@ -219,11 +215,8 @@ std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::siz
   }
 
   // Copy data into the buffer.
-  memcpy(buffer + write_offset, src, length);
-  ForwardWrite(length);
-  if (written > max_size_bytes) {
-    std::cerr << "Written: " << written << " but max: " << max_size_bytes << std::endl;
-  }
+  memcpy(buffer + write_offset + offset_offset_bytes, src, length);
+  if (!manual_increment) ForwardWrite(length);
   assert(written <= max_size_bytes);
   return length;
 }
@@ -261,21 +254,27 @@ std::uint8_t* JitterBuffer::GetReadPointerAtPacketOffset(const std::size_t read_
 }
 
 void JitterBuffer::UnwindRead(const std::size_t unwind_bytes) {
+  assert(unwind_bytes > 0);
   written += unwind_bytes;
   read_offset = (read_offset - unwind_bytes) % max_size_bytes;
 }
 
 void JitterBuffer::ForwardRead(const std::size_t forward_bytes) {
+  assert(forward_bytes > 0);
+  assert(forward_bytes <= written);
   written -= forward_bytes;
   read_offset = (read_offset + forward_bytes) % max_size_bytes;
 }
 
 void JitterBuffer::UnwindWrite(const std::size_t unwind_bytes) {
+  assert(unwind_bytes > 0);
+  assert(unwind_bytes <= written);
   written -= unwind_bytes;
   write_offset = (write_offset - unwind_bytes) % max_size_bytes;
 }
 
 void JitterBuffer::ForwardWrite(const std::size_t forward_bytes) {
+  assert(forward_bytes > 0);
   written += forward_bytes;
   write_offset = (write_offset + forward_bytes) % max_size_bytes;
 }
