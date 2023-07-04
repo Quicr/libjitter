@@ -131,13 +131,23 @@ TEST_CASE("libjitter::runover_read") {
   // Dequeue should get the 512 across the 2 packets.
   const std::size_t to_get = 512;
   void* dequeued_data = malloc(frame_size * to_get);
-  std::size_t dequeued_frames = buffer->Dequeue(static_cast<std::uint8_t*>(dequeued_data), frame_size * to_get, to_get);
+  auto* typed = static_cast<std::uint8_t*>(dequeued_data);
+  const std::size_t dequeued_frames = buffer->Dequeue(typed, frame_size * to_get, to_get);
   REQUIRE_EQ(dequeued_frames, to_get);
 
   // Should be 480 samples from packet 0, 32 from packet 1.
-  const auto* typed = static_cast<const std::uint8_t*>(dequeued_data);
   CHECK_EQ(memcmp(typed, packets[0].data, frame_size * frames_per_packet), 0);
   CHECK_EQ(memcmp(typed + (frame_size * frames_per_packet), packets[1].data, frame_size * (512 - frames_per_packet)), 0);
+
+  // Should be 448 left.
+  const std::size_t second_dequeue = buffer->Dequeue(typed, frame_size * to_get, to_get);
+  REQUIRE_EQ(second_dequeue, total_frames - dequeued_frames);
+  const auto* typed_packet = static_cast<const std::uint8_t*>(packets[1].data);
+  REQUIRE_EQ(0, memcmp(typed, typed_packet + (dequeued_frames * frame_size), second_dequeue * frame_size));
+
+  // Should get nothing now.
+  const std::size_t third_dequeue = buffer->Dequeue(typed, frame_size * to_get, to_get);
+  REQUIRE_EQ(0, third_dequeue);
 
   // Teardown.
   free(data_pointers[0]);
