@@ -131,6 +131,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
     if (age > max_length.count()) {
       // It's too old, throw this away and run to the next.
+      assert(header.elements <= packet_elements);
       ForwardRead(header.elements * element_size);
       continue;
     }

@@ -4,6 +4,7 @@
 #include <memory>
 #include <map>
 #include "test_functions.h"
+#include <thread>
 
 using namespace std::chrono;
 
@@ -299,3 +300,29 @@ TEST_CASE("libjitter::fill_buffer") {
     if (enqueued_this_iteration != packet.elements) break;
   }
 }
+
+TEST_CASE("libjitter::too_old") {
+  auto buffer = JitterBuffer(sizeof(std::size_t), 1, 100000, milliseconds(100), milliseconds(0));
+
+  Packet old_packet = makeTestPacket(1, sizeof(std::size_t), 1);
+  std::vector<Packet> old_packets;
+  old_packets.push_back(old_packet);
+  std::size_t enqueued = buffer.Enqueue(old_packets, [](const std::vector<Packet>&){}, [](const std::vector<Packet>&){});
+  REQUIRE_EQ(1, enqueued);
+  std::this_thread::sleep_for(milliseconds(100));
+
+  Packet packet = makeTestPacket(2, sizeof(std::size_t), 1);
+  std::vector<Packet> packets;
+  packets.push_back(packet);
+  enqueued = buffer.Enqueue(packets, [](const std::vector<Packet>&){}, [](const std::vector<Packet>&){});
+  REQUIRE_EQ(1, enqueued);
+
+  // Now try and dequeue.  We should get the new packet back.
+  auto *destination = reinterpret_cast<std::uint8_t*>(malloc(sizeof(std::size_t)));
+  const std::size_t dequeued = buffer.Dequeue(destination, sizeof(std::size_t), 1);
+  CHECK_EQ(1, dequeued);
+  CHECK_EQ(0, memcmp(destination, packet.data, sizeof(std::size_t)));
+  free(destination);
+}
+
+// TODO: Test for only dequeing some of packet, then dequeueing the rest.
