@@ -338,4 +338,12 @@ TEST_CASE("libjitter::too_old") {
   free(destination);
 }
 
+TEST_CASE("libjitter::buffer_too_small")
+{
+  auto buffer = JitterBuffer(1, 1, 100000, milliseconds(100), milliseconds(0));
+  void* dest = malloc(1);
+  CHECK_THROWS_WITH_AS(buffer.Dequeue(reinterpret_cast<std::uint8_t*>(dest), 1, 2), "Provided buffer too small. Was: 1, need: 2" ,const std::invalid_argument&);
+  free(dest);
+}
+
 // TODO: Test for only dequeing some of packet, then dequeueing the rest.

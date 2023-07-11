@@ -4,6 +4,7 @@
 #include <cassert>
 #include <csignal>
 #include <type_traits>
+#include <sstream>
 #ifdef __APPLE__
 #include <mach/mach.h>
 #elif _GNU_SOURCE
@@ -99,6 +100,11 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
   // Check the destination buffer is big enough.
   const std::size_t required_bytes = elements * element_size;
+  if (destination_length < required_bytes) {
+    std::stringstream message;
+    message << "Provided buffer too small. Was: " << destination_length << ", need: " << required_bytes;
+    throw std::invalid_argument(message.str());
+  }
   assert(destination_length >= required_bytes);
   
   std::size_t dequeued_bytes = 0;
