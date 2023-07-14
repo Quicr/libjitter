@@ -299,11 +299,11 @@ void* JitterBuffer::MakeVirtualMemory(std::size_t &length, void* user_data) {
   void* address;
 #if __APPLE__
   vm_address_t buffer_address;
-  kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, max_size_bytes * 2, VM_FLAGS_ANYWHERE);
+  kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, length * 2, VM_FLAGS_ANYWHERE);
   assert(result == ERR_SUCCESS);
   result = vm_deallocate(mach_task_self(), buffer_address + length, length);
   assert(result == ERR_SUCCESS);
-  vm_address_t virtual_address = buffer_address + max_size_bytes;
+  vm_address_t virtual_address = buffer_address + length;
   vm_prot_t current;
   vm_prot_t max;
   result = vm_remap(mach_task_self(), &virtual_address, length, 0, 0, mach_task_self(), buffer_address, 0, &current, &max, VM_INHERIT_DEFAULT);
