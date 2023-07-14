@@ -6,6 +6,7 @@
 #include <functional>
 #include <vector>
 #include <optional>
+#include <atomic>
 
 struct Header { 
    std::uint32_t sequence_number;
@@ -93,6 +94,7 @@ class JitterBuffer {
   std::atomic<std::size_t> written;
   std::atomic<std::size_t> written_elements;
   std::optional<unsigned long> last_written_sequence_number;
+  void* vm_user_data;
 
   std::size_t Update(const Packet &packet);
   std::size_t CopyIntoBuffer(const Packet &packet);
@@ -102,4 +104,6 @@ class JitterBuffer {
   void ForwardRead(std::size_t forward_bytes);
   void UnwindWrite(std::size_t unwind_bytes);
   void ForwardWrite(std::size_t forward_bytes);
+  [[nodiscard]] static void* MakeVirtualMemory(std::size_t& length, void* user_data);
+  static void FreeVirtualMemory(void* address, std::size_t length, void* user_data);
 };

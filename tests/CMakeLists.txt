@@ -1,12 +1,12 @@
-find_package(doctest REQUIRED)
-add_executable(libjitter_test
+project(libjitter_test)
+add_executable(${PROJECT_NAME}
                main.cpp
                implementation_test.cpp
                api_test.cpp
                test_functions.h
                BufferInspector.cpp
                BufferInspector.hh)
-target_link_libraries(libjitter_test PRIVATE doctest::doctest libjitter)
-set_property(TARGET libjitter_test PROPERTY CXX_STANDARD 17)
+target_link_libraries(${PROJECT_NAME} PRIVATE doctest::doctest libjitter)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 17)
 include(${CMAKE_SOURCE_DIR}/dependencies/doctest/scripts/cmake/doctest.cmake)
-doctest_discover_tests(libjitter_test)
+doctest_discover_tests(${PROJECT_NAME})

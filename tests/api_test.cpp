@@ -26,13 +26,14 @@ TEST_CASE("libjitter::enqueue") {
           [](const std::vector<Packet> &packets) {},
           [](const std::vector<Packet> &packets) {});
   CHECK_EQ(enqueued, packet.elements);
+  free(packet.data);
 }
 
 TEST_CASE("libjitter::dequeue_empty") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
   auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
-  void* destination = malloc(frames_per_packet * frame_size);
+  void* destination = calloc(frames_per_packet * frame_size, 1);
   const std::size_t dequeued = buffer->Dequeue(static_cast<std::uint8_t*>(destination), frames_per_packet * frame_size, 480);
   CHECK_EQ(dequeued, 0);
   free(destination);
@@ -46,7 +47,7 @@ TEST_CASE("libjitter::enqueue_dequeue")
 
   // Enqueue some data.
   Packet packet = Packet();
-  void* data = malloc(frame_size * frames_per_packet);
+  void* data = calloc(frame_size * frames_per_packet, 1);
   memset(data, 1, frame_size * frames_per_packet);
   packet.data = data;
   packet.length = frame_size * frames_per_packet;
@@ -60,7 +61,7 @@ TEST_CASE("libjitter::enqueue_dequeue")
   CHECK_EQ(enqueued, packet.elements);
 
   // Dequeue should get this data.
-  void* dequeued_data = malloc(frame_size * frames_per_packet);
+  void* dequeued_data = calloc(frame_size * frames_per_packet, 1);
   std::size_t dequeued_frames = buffer.Dequeue(static_cast<std::uint8_t*>(dequeued_data), frame_size * frames_per_packet, frames_per_packet);
   REQUIRE_EQ(dequeued_frames, frames_per_packet);
   CHECK_EQ(memcmp(dequeued_data, data, frame_size * frames_per_packet), 0);
@@ -77,7 +78,7 @@ TEST_CASE("libjitter::partial_read") {
 
   // Enqueue some data.
   Packet packet = Packet();
-  void* data = malloc(frame_size * frames_per_packet);
+  void* data = calloc(frame_size * frames_per_packet, 1);
   memset(data, 1, frame_size * frames_per_packet);
   packet.data = data;
   packet.length = frame_size * frames_per_packet;
@@ -92,7 +93,7 @@ TEST_CASE("libjitter::partial_read") {
 
   // Dequeue should get the available 480.
   const std::size_t to_get = 512;
-  void* dequeued_data = malloc(frame_size * to_get);
+  void* dequeued_data = calloc(frame_size * to_get, 1);
   std::size_t dequeued_frames = buffer->Dequeue(static_cast<std::uint8_t*>(dequeued_data), frame_size * to_get, to_get);
   REQUIRE_EQ(dequeued_frames, frames_per_packet);
   CHECK_EQ(memcmp(dequeued_data, data, frame_size * frames_per_packet), 0);
@@ -113,7 +114,7 @@ TEST_CASE("libjitter::runover_read") {
   std::vector<void*> data_pointers = std::vector<void*>();
   for (std::size_t index = 0; index < 2; index++) {
     Packet packet = Packet();
-    void *data = malloc(frame_size * frames_per_packet);
+    void *data = calloc(frame_size * frames_per_packet, 1);
     data_pointers.push_back(data);
     auto incremented = static_cast<int>(index + 1);
     memset(data, incremented, frame_size * frames_per_packet);
@@ -131,20 +132,23 @@ TEST_CASE("libjitter::runover_read") {
 
   // Dequeue should get the 512 across the 2 packets.
   const std::size_t to_get = 512;
-  void* dequeued_data = malloc(frame_size * to_get);
+  void* dequeued_data = calloc(frame_size * to_get, 1);
   auto* typed = static_cast<std::uint8_t*>(dequeued_data);
   const std::size_t dequeued_frames = buffer->Dequeue(typed, frame_size * to_get, to_get);
   REQUIRE_EQ(dequeued_frames, to_get);
 
   // Should be 480 samples from packet 0, 32 from packet 1.
   CHECK_EQ(memcmp(typed, packets[0].data, frame_size * frames_per_packet), 0);
-  CHECK_EQ(memcmp(typed + (frame_size * frames_per_packet), packets[1].data, frame_size * (512 - frames_per_packet)), 0);
+  CHECK_EQ(memcmp(typed + (frame_size * frames_per_packet), packets[1].data, frame_size * (to_get - frames_per_packet)), 0);
 
   // Should be 448 left.
   const std::size_t second_dequeue = buffer->Dequeue(typed, frame_size * to_get, to_get);
   REQUIRE_EQ(second_dequeue, total_frames - dequeued_frames);
   const auto* typed_packet = static_cast<const std::uint8_t*>(packets[1].data);
-  REQUIRE_EQ(0, memcmp(typed, typed_packet + (dequeued_frames * frame_size), second_dequeue * frame_size));
+
+  // The data that got dequeued should be equal to the second packet + what we read the first time - the size of the first packet.
+  const std::size_t second_packet_offset = dequeued_frames - packets[0].elements;
+  REQUIRE_EQ(0, memcmp(typed, typed_packet + (second_packet_offset * frame_size), second_dequeue * frame_size));
 
   // Should get nothing now.
   const std::size_t third_dequeue = buffer->Dequeue(typed, frame_size * to_get, to_get);
@@ -189,7 +193,7 @@ TEST_CASE("libjitter::concealment") {
             for (auto& packet : packets) {
               CHECK_EQ(expected_sequence, packet.sequence_number);
               expected_sequence++;
-              packet.data = malloc(frame_size * frames_per_packet);
+              packet.data = calloc(frame_size * frames_per_packet, 1);
               packet.length = frame_size * frames_per_packet;
               packet.elements = frames_per_packet;
               concealment_packets.emplace(packet.sequence_number, packet);
@@ -205,6 +209,8 @@ TEST_CASE("libjitter::concealment") {
             }
           });
   CHECK_EQ(enqueued4, expected_enqueued);
+  free(sequence1.data);
+  free(sequence4.data);
 }
 
 TEST_CASE("libjitter::current_depth") {
@@ -218,6 +224,7 @@ TEST_CASE("libjitter::current_depth") {
           packets,
           [](const std::vector<Packet> &packets) {},
           [](const std::vector<Packet> &packets) {});
+  free(packet.data);
   CHECK_EQ(enqueued, packet.elements);
   CHECK_EQ(milliseconds(10).count(), buffer->GetCurrentDepth().count());
 }
@@ -243,6 +250,7 @@ TEST_CASE("libjitter::update_existing") {
               FAIL("Unexpected free");
             });
     CHECK_EQ(enqueued, packet.elements);
+    free(packet.data);
   }
 
   // Push 3.
@@ -256,7 +264,7 @@ TEST_CASE("libjitter::update_existing") {
             [&concealment_enqueue](std::vector<Packet> &packets) {
               CHECK_EQ(packets.capacity(), 1);
               CHECK_EQ(packets[0].sequence_number, 2);
-              packets[0].data = malloc(packets[0].length);
+              packets[0].data = calloc(packets[0].length, 1);
               concealment_enqueue += packets[0].length / frame_size;
             },
             [](std::vector<Packet> &packets) {
@@ -265,6 +273,7 @@ TEST_CASE("libjitter::update_existing") {
               free(packets[0].data);
             });
     CHECK_EQ(enqueued3, packet3.elements + concealment_enqueue);
+    free(packet3.data);
   }
 
   // Now update 2.
@@ -281,6 +290,7 @@ TEST_CASE("libjitter::update_existing") {
               FAIL("Unexpected free");
             });
     CHECK_EQ(enqueued, updatePacket.elements);
+    free(updatePacket.data);
   }
 }
 
@@ -296,20 +306,22 @@ TEST_CASE("libjitter::fill_buffer") {
     std::vector<Packet> packets = std::vector<Packet>();
     packets.push_back(packet);
     const std::size_t enqueued_this_iteration = buffer->Enqueue(packets, [](const std::vector<Packet> &packets){}, [](const std::vector<Packet> &packets){});
+    free(packet.data);
     elements_enqueued += enqueued_this_iteration;
     if (enqueued_this_iteration != packet.elements) break;
   }
 }
 
 TEST_CASE("libjitter::too_old") {
-  auto buffer = JitterBuffer(sizeof(std::size_t), 1, 100000, milliseconds(100), milliseconds(0));
+  const auto max_age = milliseconds(100);
+  auto buffer = JitterBuffer(sizeof(std::size_t), 1, 100000, max_age, milliseconds(0));
 
   Packet old_packet = makeTestPacket(1, sizeof(std::size_t), 1);
   std::vector<Packet> old_packets;
   old_packets.push_back(old_packet);
   std::size_t enqueued = buffer.Enqueue(old_packets, [](const std::vector<Packet>&){}, [](const std::vector<Packet>&){});
   REQUIRE_EQ(1, enqueued);
-  std::this_thread::sleep_for(milliseconds(100));
+  std::this_thread::sleep_for(max_age);
 
   Packet packet = makeTestPacket(2, sizeof(std::size_t), 1);
   std::vector<Packet> packets;
@@ -317,11 +329,14 @@ TEST_CASE("libjitter::too_old") {
   enqueued = buffer.Enqueue(packets, [](const std::vector<Packet>&){}, [](const std::vector<Packet>&){});
   REQUIRE_EQ(1, enqueued);
 
-  // Now try and dequeue.  We should get the new packet back.
-  auto *destination = reinterpret_cast<std::uint8_t*>(malloc(sizeof(std::size_t)));
+  // Now try and dequeue.  We should get the second packet back.
+  auto *destination = reinterpret_cast<std::uint8_t*>(calloc(1, sizeof(std::size_t)));
   const std::size_t dequeued = buffer.Dequeue(destination, sizeof(std::size_t), 1);
-  CHECK_EQ(1, dequeued);
-  CHECK_EQ(0, memcmp(destination, packet.data, sizeof(std::size_t)));
+  REQUIRE_EQ(1, dequeued);
+  REQUIRE_NE(0, memcmp(destination, old_packet.data, sizeof(std::size_t)));
+  REQUIRE_EQ(0, memcmp(destination, packet.data, sizeof(std::size_t)));
+  free(old_packet.data);
+  free(packet.data);
   free(destination);
 }
 
