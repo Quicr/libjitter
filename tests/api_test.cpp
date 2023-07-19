@@ -23,8 +23,7 @@ TEST_CASE("libjitter::enqueue") {
   packets.push_back(packet);
   const std::size_t enqueued = buffer.Enqueue(
           packets,
-          [](const std::vector<Packet> &packets) {},
-          [](const std::vector<Packet> &packets) {});
+          [](const std::vector<Concealment> &packets) {});
   CHECK_EQ(enqueued, packet.elements);
 }
 
@@ -55,8 +54,7 @@ TEST_CASE("libjitter::enqueue_dequeue")
   std::vector<Packet> packets = std::vector<Packet>();
   packets.push_back(packet);
   const std::size_t enqueued = buffer.Enqueue(packets,
-          [](const std::vector<Packet>& packets){},
-          [](const std::vector<Packet>& packets){});
+          [](const std::vector<Concealment>& packets){});
   CHECK_EQ(enqueued, packet.elements);
 
   // Dequeue should get this data.
@@ -86,8 +84,7 @@ TEST_CASE("libjitter::partial_read") {
   std::vector<Packet> packets = std::vector<Packet>();
   packets.push_back(packet);
   const std::size_t enqueued = buffer->Enqueue(packets,
-          [](const std::vector<Packet>& packets){},
-          [](const std::vector<Packet>& packets){});
+          [](const std::vector<Concealment>& packets){});
   CHECK_EQ(enqueued, packet.elements);
 
   // Dequeue should get the available 480.
@@ -125,8 +122,7 @@ TEST_CASE("libjitter::runover_read") {
     packets.push_back(packet);
   }
   const std::size_t enqueued = buffer->Enqueue(packets,
-          [](const std::vector<Packet>& packets){},
-          [](const std::vector<Packet>& packets){});
+          [](const std::vector<Concealment>& packets){ });
   CHECK_EQ(enqueued, total_frames);
 
   // Dequeue should get the 512 across the 2 packets.
@@ -138,13 +134,13 @@ TEST_CASE("libjitter::runover_read") {
 
   // Should be 480 samples from packet 0, 32 from packet 1.
   CHECK_EQ(memcmp(typed, packets[0].data, frame_size * frames_per_packet), 0);
-  CHECK_EQ(memcmp(typed + (frame_size * frames_per_packet), packets[1].data, frame_size * (512 - frames_per_packet)), 0);
+  CHECK_EQ(memcmp(typed + (frame_size * frames_per_packet), packets[1].data, frame_size * (to_get - frames_per_packet)), 0);
 
   // Should be 448 left.
   const std::size_t second_dequeue = buffer->Dequeue(typed, frame_size * to_get, to_get);
   REQUIRE_EQ(second_dequeue, total_frames - dequeued_frames);
   const auto* typed_packet = static_cast<const std::uint8_t*>(packets[1].data);
-  REQUIRE_EQ(0, memcmp(typed, typed_packet + (dequeued_frames * frame_size), second_dequeue * frame_size));
+  REQUIRE_EQ(0, memcmp(typed, typed_packet + ((dequeued_frames - frames_per_packet) * frame_size), second_dequeue * frame_size));
 
   // Should get nothing now.
   const std::size_t third_dequeue = buffer->Dequeue(typed, frame_size * to_get, to_get);
@@ -167,10 +163,7 @@ TEST_CASE("libjitter::concealment") {
   sequence1Packets.push_back(sequence1);
   const std::size_t enqueued1 = buffer->Enqueue(
           sequence1Packets,
-          [](const std::vector<Packet> &packets) {
-            FAIL("Expected no callback");
-          },
-          [](const std::vector<Packet> &packets) {
+          [](const std::vector<Concealment> &packets) {
             FAIL("Expected no callback");
           });
   CHECK_EQ(enqueued1, sequence1.elements);
@@ -179,29 +172,17 @@ TEST_CASE("libjitter::concealment") {
   Packet sequence4 = makeTestPacket(5, frame_size, frames_per_packet);
   std::vector<Packet> sequence4Packets = std::vector<Packet>();
   sequence4Packets.push_back(sequence4);
-  std::map<unsigned long, Packet> concealment_packets;
   std::size_t expected_enqueued = sequence4.elements;
   const std::size_t enqueued4 = buffer->Enqueue(
           sequence4Packets,
-          [sequence1, sequence4, frame_size, frames_per_packet, &concealment_packets, &expected_enqueued](std::vector<Packet> &packets) {
+          [sequence1, sequence4, frame_size, frames_per_packet, &expected_enqueued](std::vector<Concealment> &packets) {
             CHECK_EQ(packets.capacity(), sequence4.sequence_number - sequence1.sequence_number - 1);
             unsigned long expected_sequence = sequence1.sequence_number + 1;
             for (auto& packet : packets) {
-              CHECK_EQ(expected_sequence, packet.sequence_number);
+              CHECK_EQ(expected_sequence, packet.header.sequence_number);
               expected_sequence++;
-              packet.data = malloc(frame_size * frames_per_packet);
-              packet.length = frame_size * frames_per_packet;
-              packet.elements = frames_per_packet;
-              concealment_packets.emplace(packet.sequence_number, packet);
-              expected_enqueued += packet.elements;
-            }
-          },
-          [sequence1, sequence4, frame_size, frames_per_packet, &concealment_packets](std::vector<Packet> &packets) {
-            CHECK_EQ(packets.capacity(), sequence4.sequence_number - sequence1.sequence_number - 1);
-            for (Packet& packet : packets) {
-              const Packet created = concealment_packets.at(packet.sequence_number);
-              CHECK_EQ(created, packet);
-              free(packet.data);
+              packet.header.elements = frames_per_packet;
+              expected_enqueued += packet.header.elements;
             }
           });
   CHECK_EQ(enqueued4, expected_enqueued);
@@ -216,8 +197,7 @@ TEST_CASE("libjitter::current_depth") {
   packets.push_back(packet);
   const std::size_t enqueued = buffer->Enqueue(
           packets,
-          [](const std::vector<Packet> &packets) {},
-          [](const std::vector<Packet> &packets) {});
+          [](const std::vector<Concealment> &packets) {});
   CHECK_EQ(enqueued, packet.elements);
   CHECK_EQ(milliseconds(10).count(), buffer->GetCurrentDepth().count());
 }
@@ -236,11 +216,8 @@ TEST_CASE("libjitter::update_existing") {
     packets.push_back(packet);
     const std::size_t enqueued = buffer->Enqueue(
             packets,
-            [](const std::vector<Packet> &packets) {
+            [](const std::vector<Concealment> &packets) {
               FAIL("Unexpected concealment");
-            },
-            [](const std::vector<Packet> &packets) {
-              FAIL("Unexpected free");
             });
     CHECK_EQ(enqueued, packet.elements);
   }
@@ -253,16 +230,10 @@ TEST_CASE("libjitter::update_existing") {
     std::size_t concealment_enqueue = 0;
     const std::size_t enqueued3 = buffer->Enqueue(
             packets3,
-            [&concealment_enqueue](std::vector<Packet> &packets) {
+            [&concealment_enqueue](std::vector<Concealment> &packets) {
               CHECK_EQ(packets.capacity(), 1);
-              CHECK_EQ(packets[0].sequence_number, 2);
-              packets[0].data = malloc(packets[0].length);
-              concealment_enqueue += packets[0].length / frame_size;
-            },
-            [](std::vector<Packet> &packets) {
-              CHECK_EQ(packets.capacity(), 1);
-              CHECK_EQ(packets[0].sequence_number, 2);
-              free(packets[0].data);
+              CHECK_EQ(packets[0].header.sequence_number, 2);
+              concealment_enqueue += packets[0].header.elements;
             });
     CHECK_EQ(enqueued3, packet3.elements + concealment_enqueue);
   }
@@ -274,11 +245,8 @@ TEST_CASE("libjitter::update_existing") {
     updatePackets.push_back(updatePacket);
     const std::size_t enqueued = buffer->Enqueue(
             updatePackets,
-            [](const std::vector<Packet> &packets) {
+            [](const std::vector<Concealment> &packets) {
               FAIL("Unexpected concealment");
-            },
-            [](const std::vector<Packet> &packets) {
-              FAIL("Unexpected free");
             });
     CHECK_EQ(enqueued, updatePacket.elements);
   }
@@ -295,7 +263,7 @@ TEST_CASE("libjitter::fill_buffer") {
     Packet packet = makeTestPacket(sequence_number++, frame_size, frames_per_packet);
     std::vector<Packet> packets = std::vector<Packet>();
     packets.push_back(packet);
-    const std::size_t enqueued_this_iteration = buffer->Enqueue(packets, [](const std::vector<Packet> &packets){}, [](const std::vector<Packet> &packets){});
+    const std::size_t enqueued_this_iteration = buffer->Enqueue(packets, [](const std::vector<Concealment> &packets){});
     elements_enqueued += enqueued_this_iteration;
     if (enqueued_this_iteration != packet.elements) break;
   }
@@ -307,14 +275,14 @@ TEST_CASE("libjitter::too_old") {
   Packet old_packet = makeTestPacket(1, sizeof(std::size_t), 1);
   std::vector<Packet> old_packets;
   old_packets.push_back(old_packet);
-  std::size_t enqueued = buffer.Enqueue(old_packets, [](const std::vector<Packet>&){}, [](const std::vector<Packet>&){});
+  std::size_t enqueued = buffer.Enqueue(old_packets, [](const std::vector<Concealment>&){});
   REQUIRE_EQ(1, enqueued);
   std::this_thread::sleep_for(milliseconds(100));
 
   Packet packet = makeTestPacket(2, sizeof(std::size_t), 1);
   std::vector<Packet> packets;
   packets.push_back(packet);
-  enqueued = buffer.Enqueue(packets, [](const std::vector<Packet>&){}, [](const std::vector<Packet>&){});
+  enqueued = buffer.Enqueue(packets, [](const std::vector<Concealment>&){});
   REQUIRE_EQ(1, enqueued);
 
   // Now try and dequeue.  We should get the new packet back.

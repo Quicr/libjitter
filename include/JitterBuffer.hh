@@ -13,6 +13,11 @@ struct Header {
    std::uint64_t timestamp;
 };
 
+struct Concealment {
+   Header header;
+   void* data;
+};
+
 class JitterBuffer {
   public:
       const static std::size_t METADATA_SIZE = sizeof(Header);
@@ -24,7 +29,7 @@ class JitterBuffer {
      * @param elements The number of concealment elements to generate.
      * @return std::vector<Packet> The generated concealment packets.
      */
-  typedef std::function<void(std::vector<Packet> &packets)> ConcealmentCallback;
+  typedef std::function<void(std::vector<Concealment> &packets)> ConcealmentCallback;
 
   /**
      * @brief Construct a new Jitter Buffer object.
@@ -50,7 +55,7 @@ class JitterBuffer {
      * @param free_callback Fired when the concealment packets have been finished with.
      * @return std::size_t The number of elements actually enqueued, including concealment.
      */
-  std::size_t Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback, const ConcealmentCallback &free_callback);
+  std::size_t Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback);
 
   /**
      * @brief Dequeue a number of packets into the given destination. This must be called from a single reader thread.

@@ -47,7 +47,7 @@ JitterBuffer::~JitterBuffer() {
   vm_deallocate(mach_task_self(), (vm_address_t) buffer, max_size_bytes * 2);
 }
 
-std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback, const ConcealmentCallback &free_callback) {
+std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback) {
   std::size_t enqueued = 0;
 
   for (const Packet &packet: packets) {
@@ -58,29 +58,34 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       enqueued += Update(packet);
       continue;
     } else if (last_written_sequence_number.has_value() && packet.sequence_number != last_written_sequence_number) {
-     // TODO: We should check that there's enough space before we bother to ask for concealment packet generation.
      const std::size_t last = last_written_sequence_number.value();
      const std::size_t missing = packet.sequence_number - last - 1;
      if (missing > 0) {
-       std::cout << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << std::endl;
-       std::vector<Packet> concealment_packets = std::vector<Packet>(missing);
-       for (std::size_t sequence_offset = 0; sequence_offset < missing; sequence_offset++) {
-         concealment_packets[sequence_offset].sequence_number = last + sequence_offset + 1;
-         concealment_packets[sequence_offset].elements = packet_elements;
-         concealment_packets[sequence_offset].length = packet_elements * element_size;
+       std::cout << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::endl;
+       // Alter missing to be the smallest of the missing packets or what we can currently fit in the buffer.
+       const std::size_t space = max_size_bytes - written;
+       const std::size_t space_elements = space / (element_size + METADATA_SIZE);
+       const std::size_t to_conceal = std::min(missing, space_elements);
+       if (missing != to_conceal) {
+         std::cout << "Couldn't fit all missing. Asking for: " << to_conceal << "/" << missing << std::endl;
+       }
+       std::vector<Concealment> concealment_packets = std::vector<Concealment>(to_conceal);
+       for (std::size_t sequence_offset = 0; sequence_offset < to_conceal; sequence_offset++) {
+         // We need to write the header for this packet.
+         const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+         Header header = {
+           .sequence_number = static_cast<uint32_t>(last + sequence_offset + 1),
+           .elements = packet_elements,
+           .timestamp = static_cast<uint64_t>(now_ms)
+         };
+         CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, false, 0);
+         concealment_packets[sequence_offset].header = header;
+         concealment_packets[sequence_offset].data = buffer + write_offset;
+         ForwardWrite(packet_elements * element_size);
        }
        concealment_callback(concealment_packets);
-       for (const Packet &concealment_packet: concealment_packets) {
-         if (concealment_packet.length == 0) continue;
-         const std::size_t enqueued_elements = CopyIntoBuffer(concealment_packet);
-         if (enqueued_elements == 0) {
-           // There's no more space.
-           break;
-         }
-         enqueued += enqueued_elements;
-         last_written_sequence_number = concealment_packet.sequence_number;
-       }
-       free_callback(concealment_packets);
+       last_written_sequence_number = last + to_conceal;
+       enqueued += packet_elements * to_conceal;
      }
    }
 
