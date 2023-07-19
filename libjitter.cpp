@@ -21,7 +21,7 @@ size_t JitterEnqueue(void *libjitter,
                      void* user_data) {
   auto *buffer = static_cast<JitterBuffer *>(libjitter);
 
-  JitterBuffer::ConcealmentCallback callback = [concealment_callback, user_data](std::vector<Concealment> &packets) {
+  JitterBuffer::ConcealmentCallback callback = [concealment_callback, user_data](std::vector<Packet> &packets) {
     concealment_callback(&packets[0], packets.capacity(), user_data);
   };
 
