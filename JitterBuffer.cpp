@@ -78,14 +78,19 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
            .elements = packet_elements,
            .timestamp = static_cast<uint64_t>(now_ms)
          };
-         CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, false, 0);
+         CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, true, 0);
+         write_offset = (write_offset + METADATA_SIZE) % max_size_bytes;
          concealment_packets[sequence_offset].sequence_number = header.sequence_number;
          concealment_packets[sequence_offset].elements = header.elements;
          concealment_packets[sequence_offset].length = header.elements * element_size;
          concealment_packets[sequence_offset].data = buffer + write_offset;
-         ForwardWrite(packet_elements * element_size);
+         write_offset = (write_offset + header.elements * element_size) % max_size_bytes;
        }
        concealment_callback(concealment_packets);
+
+       // Now that we've finished providing data, update values for the reader.
+       written += to_conceal * ((packet_elements * element_size) + METADATA_SIZE);
+       written_elements += to_conceal * packet_elements;
        last_written_sequence_number = last + to_conceal;
        enqueued += packet_elements * to_conceal;
      }
