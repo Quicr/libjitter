@@ -13,11 +13,6 @@ struct Header {
    std::uint64_t timestamp;
 };
 
-struct Concealment {
-   Header header;
-   void* data;
-};
-
 class JitterBuffer {
   public:
       const static std::size_t METADATA_SIZE = sizeof(Header);
@@ -29,7 +24,7 @@ class JitterBuffer {
      * @param elements The number of concealment elements to generate.
      * @return std::vector<Packet> The generated concealment packets.
      */
-  typedef std::function<void(std::vector<Concealment> &packets)> ConcealmentCallback;
+  typedef std::function<void(std::vector<Packet> &packets)> ConcealmentCallback;
 
   /**
      * @brief Construct a new Jitter Buffer object.
