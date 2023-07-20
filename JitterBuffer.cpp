@@ -282,7 +282,7 @@ void JitterBuffer::UnwindWrite(const std::size_t unwind_bytes) {
   assert(unwind_bytes > 0);
   assert(unwind_bytes <= written);
   written -= unwind_bytes;
-  write_offset = ((write_offset - unwind_bytes) + unwind_bytes * max_size_bytes) % max_size_bytes;;
+  write_offset = ((write_offset - unwind_bytes) + unwind_bytes * max_size_bytes) % max_size_bytes;
 }
 
 void JitterBuffer::ForwardWrite(const std::size_t forward_bytes) {
