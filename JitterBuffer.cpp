@@ -118,7 +118,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::uint64_t age = now_ms - header.timestamp;
     assert(age >= 0);
-    if (age < min_length.count()) {
+    if (age < static_cast<std::uint64_t>(min_length.count())) {
       // Not old enough. Stop here and rewind pointer back to header for the next read.
       UnwindRead(METADATA_SIZE);
       assert(dequeued_bytes % element_size == 0);
@@ -127,7 +127,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       return dequeued_elements;
     }
 
-    if (age >= max_length.count()) {
+    if (age >= static_cast<std::uint64_t>(max_length.count())) {
       // It's too old, throw this away and run to the next.
       assert(header.elements <= packet_elements);
       ForwardRead(header.elements * element_size);
@@ -294,7 +294,7 @@ milliseconds JitterBuffer::GetCurrentDepth() const {
   return milliseconds(static_cast<std::int64_t>(ms));
 }
 
-void* JitterBuffer::MakeVirtualMemory(std::size_t &length, void* user_data) {
+void* JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void* user_data) {
   // Get buffer length as multiple of page size.
 #ifdef __APPLE__
   length = round_page(length);
@@ -331,7 +331,7 @@ void* JitterBuffer::MakeVirtualMemory(std::size_t &length, void* user_data) {
   return address;
 }
 
-void JitterBuffer::FreeVirtualMemory(void *address, const std::size_t length, void* user_data) {
+void JitterBuffer::FreeVirtualMemory(void *address, const std::size_t length, [[maybe_unused]] void* user_data) {
 #ifdef __APPLE__
   vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(address), length * 2);
 #elif _GNU_SOURCE

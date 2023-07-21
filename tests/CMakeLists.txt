@@ -8,5 +8,6 @@ add_executable(${PROJECT_NAME}
                BufferInspector.hh)
 target_link_libraries(${PROJECT_NAME} PRIVATE doctest::doctest libjitter)
 set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 17)
+target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
 include(${CMAKE_SOURCE_DIR}/dependencies/doctest/scripts/cmake/doctest.cmake)
 doctest_discover_tests(${PROJECT_NAME})
