@@ -111,7 +111,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
     // Get the header.
     Header header{};
-    const std::size_t copied = CopyOutOfBuffer((std::uint8_t*)&header, METADATA_SIZE, METADATA_SIZE, true);
+    [[maybe_unused]] const std::size_t copied = CopyOutOfBuffer((std::uint8_t*)&header, METADATA_SIZE, METADATA_SIZE, true);
     assert(copied == METADATA_SIZE);
     assert(header.elements > 0);
     // Is this packet of data old enough?
@@ -144,7 +144,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     assert(bytes_dequeued > 0); // Because we got a header, we should get *something*.
     assert(bytes_dequeued % element_size == 0); // We should only get whole elements out.
     destination_offset += bytes_dequeued;
-    const std::size_t originally_available = header.elements;
+    [[maybe_unused]] const std::size_t originally_available = header.elements;
     if (bytes_dequeued < available_bytes) {
       // We didn't fully empty a packet, update the header to reflect what's left.
       UnwindRead(METADATA_SIZE);
@@ -156,7 +156,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     }
 
     // Otherwise, we read a whole packet and have space for more.
-    const std::size_t dequeued_elements = bytes_dequeued / element_size;
+    [[maybe_unused]] const std::size_t dequeued_elements = bytes_dequeued / element_size;
     assert(dequeued_elements <= originally_available); // We should not get more than available.
     dequeued_bytes += bytes_dequeued;
   }
@@ -306,7 +306,7 @@ void* JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void
   void* address;
 #if __APPLE__
   vm_address_t buffer_address;
-  kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, length * 2, VM_FLAGS_ANYWHERE);
+  [[maybe_unused]] kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, length * 2, VM_FLAGS_ANYWHERE);
   assert(result == ERR_SUCCESS);
   result = vm_deallocate(mach_task_self(), buffer_address + length, length);
   assert(result == ERR_SUCCESS);
