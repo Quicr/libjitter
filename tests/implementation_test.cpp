@@ -157,7 +157,6 @@ TEST_CASE("libjitter_implementation::update_existing") {
             [](const std::vector<Packet> &) {
               FAIL("Unexpected free");
             });
-    // FIXME: This fails because of bad backwards search.
     CHECK_EQ(enqueued, updatePacket.elements);
   }
 

@@ -7,11 +7,21 @@
 #include <vector>
 #include <optional>
 #include <atomic>
+#include <map>
 
 struct Header { 
    std::uint32_t sequence_number;
    std::size_t elements;
    std::uint64_t timestamp;
+   bool concealment;
+};
+
+struct ConcealmentEntry {
+   std::size_t offset;
+   std::atomic<bool> in_use;
+   std::atomic<bool> stale;
+
+   ConcealmentEntry(const std::size_t offset, const bool in_use, const bool stale) : offset(offset), in_use(in_use), stale(stale) {}
 };
 
 class JitterBuffer {
@@ -94,10 +104,11 @@ class JitterBuffer {
   std::atomic<std::size_t> written;
   std::atomic<std::size_t> written_elements;
   std::optional<unsigned long> last_written_sequence_number;
+  std::map<unsigned long, ConcealmentEntry> concealment_packet_offsets;
   void* vm_user_data;
 
   std::size_t Update(const Packet &packet);
-  std::size_t CopyIntoBuffer(const Packet &packet);
+  std::size_t CopyIntoBuffer(const Packet &packet, bool concealment);
   std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length, bool manual_increment, std::size_t offset_offset_bytes);
   std::size_t CopyOutOfBuffer(std::uint8_t *destination, std::size_t length, std::size_t required_bytes, bool strict);
   void UnwindRead(std::size_t unwind_bytes);
