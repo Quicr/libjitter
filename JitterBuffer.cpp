@@ -320,7 +320,8 @@ void* JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void
 #elif _GNU_SOURCE
   int fd = memfd_create("buffer", 0);
   memcpy(user_data, &fd, sizeof(fd));
-  ftruncate(fd, length);
+  [[maybe_unused] int truncated = ftruncate(fd, length);
+  assert(truncated == 0);
   address = mmap(nullptr, 2 * length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   mmap(address, length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
   auto typed_address = reinterpret_cast<std::uint8_t*>(address);
