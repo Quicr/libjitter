@@ -105,7 +105,6 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     message << "Provided buffer too small. Was: " << destination_length << ", need: " << required_bytes;
     throw std::invalid_argument(message.str());
   }
-  assert(destination_length >= required_bytes);
   
   std::size_t dequeued_bytes = 0;
   std::size_t destination_offset = 0;
