@@ -346,4 +346,20 @@ TEST_CASE("libjitter::buffer_too_small")
   free(dest);
 }
 
+TEST_CASE("libjitter::buffer_too_small")
+{
+  auto buffer = JitterBuffer(1, 1, 100000, milliseconds(100), milliseconds(0));
+  auto packet = Packet {
+    .sequence_number = 1,
+    .data = nullptr,
+    .length = 0,
+    .elements = 2,
+  };
+  std::vector<Packet> packets;
+  packets.push_back(packet);
+  CHECK_THROWS_WITH_AS(buffer.Enqueue(packets, [](const std::vector<Packet>&){}, [](const std::vector<Packet>&){}),
+                       "Supplied packet elements must match declared number of elements. Got: 2, expected: 1",
+                       const std::invalid_argument&);
+}
+
 // TODO: Test for only dequeing some of packet, then dequeueing the rest.

@@ -84,6 +84,11 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
    }
 
     // Enqueue this packet of real data.
+    if (packet.elements != packet_elements) {
+      std::stringstream message;
+      message << "Supplied packet elements must match declared number of elements. Got: " << packet.elements << ", expected: " << packet_elements;
+      throw std::invalid_argument(message.str());
+    }
     const std::size_t enqueued_elements = CopyIntoBuffer(packet);
     if (enqueued_elements == 0 && packet.elements > 0) {
       // There's no more space.

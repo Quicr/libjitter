@@ -32,9 +32,14 @@ size_t JitterEnqueue(void *libjitter,
   };
 
   const std::vector<Packet> vector(packets, packets + elements);
-  return buffer->Enqueue(vector,
-                         callback,
-                         intermediate_free);
+  try {
+    return buffer->Enqueue(vector,
+                           callback,
+                           intermediate_free);
+  } catch (const std::exception& exception) {
+    std::cerr << exception.what() << std::endl;
+    return 0;
+  }
 }
 
 size_t JitterDequeue(void *libjitter,
