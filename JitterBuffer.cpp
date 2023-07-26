@@ -85,7 +85,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
 
     // Enqueue this packet of real data.
     if (packet.elements != packet_elements) {
-      std::stringstream message;
+      std::ostringstream message;
       message << "Supplied packet elements must match declared number of elements. Got: " << packet.elements << ", expected: " << packet_elements;
       throw std::invalid_argument(message.str());
     }

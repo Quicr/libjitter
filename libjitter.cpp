@@ -36,8 +36,8 @@ size_t JitterEnqueue(void *libjitter,
     return buffer->Enqueue(vector,
                            callback,
                            intermediate_free);
-  } catch (const std::exception& exception) {
-    std::cerr << exception.what() << std::endl;
+  } catch (const std::exception& ex) {
+    std::cerr << ex.what() << std::endl;
     return 0;
   }
 }
@@ -49,8 +49,8 @@ size_t JitterDequeue(void *libjitter,
   try {
     auto *buffer = static_cast<JitterBuffer *>(libjitter);
     return buffer->Dequeue((std::uint8_t *) destination, destination_length, elements);
-  } catch (const std::exception& exception) {
-    std::cerr << exception.what() << std::endl;
+  } catch (const std::exception& ex) {
+    std::cerr << ex.what() << std::endl;
     return 0;
   }
 }
