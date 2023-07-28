@@ -7,7 +7,7 @@
 #include <vector>
 #include <optional>
 #include <atomic>
-#include <map>
+#include <unordered_map>
 
 struct Header { 
    std::uint32_t sequence_number;
@@ -104,7 +104,7 @@ class JitterBuffer {
   std::atomic<std::size_t> written;
   std::atomic<std::size_t> written_elements;
   std::optional<unsigned long> last_written_sequence_number;
-  std::map<unsigned long, ConcealmentEntry> concealment_packet_offsets;
+  std::unordered_map<unsigned long, ConcealmentEntry> concealment_packet_offsets;
   void* vm_user_data;
 
   std::size_t Update(const Packet &packet);
