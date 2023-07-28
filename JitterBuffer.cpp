@@ -4,6 +4,7 @@
 #include <cassert>
 #include <csignal>
 #include <type_traits>
+#include <sstream>
 #ifdef __APPLE__
 #include <mach/mach.h>
 #elif _GNU_SOURCE
@@ -83,6 +84,11 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
    }
 
     // Enqueue this packet of real data.
+    if (packet.elements != packet_elements) {
+      std::ostringstream message;
+      message << "Supplied packet elements must match declared number of elements. Got: " << packet.elements << ", expected: " << packet_elements;
+      throw std::invalid_argument(message.str());
+    }
     const std::size_t enqueued_elements = CopyIntoBuffer(packet, false);
     if (enqueued_elements == 0 && packet.elements > 0) {
       // There's no more space.
@@ -99,7 +105,11 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
   // Check the destination buffer is big enough.
   const std::size_t required_bytes = elements * element_size;
-  assert(destination_length >= required_bytes);
+  if (destination_length < required_bytes) {
+    std::stringstream message;
+    message << "Provided buffer too small. Was: " << destination_length << ", need: " << required_bytes;
+    throw std::invalid_argument(message.str());
+  }
   
   std::size_t dequeued_bytes = 0;
   std::size_t destination_offset = 0;
