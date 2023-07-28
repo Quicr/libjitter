@@ -271,7 +271,7 @@ std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet, const bool concea
   assert(header.elements > 0);
   if (concealment) {
     header.concealment = true;
-    [[maybe_unused]] auto [iterator, inserted] = concealment_packet_offsets.try_emplace(packet.sequence_number, header_offset, false, false);
+    [[maybe_unused]] auto [iterator, inserted] = concealment_packet_offsets.try_emplace(packet.sequence_number, header_offset, false);
     assert(inserted); // We should not have a concealment packet with this sequence number already.
   }
   memcpy(buffer + header_offset, &header, METADATA_SIZE);

@@ -18,10 +18,10 @@ struct Header {
 
 struct ConcealmentEntry {
    std::size_t offset;
-   std::atomic_flag in_use;
+   std::atomic_flag in_use = ATOMIC_FLAG_INIT;
    std::atomic<bool> stale;
 
-   ConcealmentEntry(const std::size_t offset, const bool in_use, const bool stale) : offset(offset), in_use(in_use), stale(stale) {}
+   ConcealmentEntry(const std::size_t offset, const bool stale) : offset(offset), stale(stale) {}
 };
 
 class JitterBuffer {
