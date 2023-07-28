@@ -135,15 +135,12 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
         return 0;
       }
       ConcealmentEntry& entry = concealment_iterator->second;
-      if (entry.in_use) {
+      if (entry.in_use.test_and_set()) {
        // This packet is currently being updated from concealment data to real data.
        // It's not safe for us to read it - skip to the next available packet.
        ForwardRead(header.elements * element_size);
        continue;
       }
-
-      // We're reading this packet.
-      entry.in_use = true;
     }
 
     // Is this packet of data old enough?
@@ -157,7 +154,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       const std::size_t dequeued_elements = dequeued_bytes / element_size;
       written_elements -= dequeued_elements;
       if (header.concealment) {
-       concealment_iterator->second.in_use = false;
+       concealment_iterator->second.in_use.clear();
       }
       return dequeued_elements;
     }
@@ -200,7 +197,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     }
 
     if (header.concealment) {
-      concealment_iterator->second.in_use = false;
+      concealment_iterator->second.in_use.clear();
     }
     [[maybe_unused]] const std::size_t dequeued_elements = bytes_dequeued / element_size;
     assert(dequeued_elements <= originally_available); // We should not get more than available.
@@ -225,24 +222,25 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
 
   // Get the header for this concealment packet.
   ConcealmentEntry& concealment_entry = concealment_offset->second;
-  if (concealment_entry.in_use) {
+  if (concealment_entry.in_use.test_and_set()) {
     // It's being read, we can't update it.
     std::cout << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::endl;
     return 0;
   }
 
   // Check the header still makes sense (it may have been overwritten).
-  concealment_entry.in_use = true;
   auto header = reinterpret_cast<Header*>(buffer + concealment_entry.offset);
   if (header->sequence_number != packet.sequence_number) {
     std::cout << "[" << packet.sequence_number << "] Concealment map may be out of date" << std::endl;
     concealment_packet_offsets.erase(concealment_offset);
+    concealment_entry.in_use.clear();
     return 0;
   }
 
   // Copy in the updated data.
   const std::size_t source_offset_frames = packet.elements - header->elements;
   memcpy(buffer + concealment_entry.offset + METADATA_SIZE, reinterpret_cast<std::uint8_t*>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
+  concealment_entry.in_use.clear();
 
   // Remove this packet from the concealment map.
   header->concealment = false;

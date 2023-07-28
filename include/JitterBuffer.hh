@@ -18,7 +18,7 @@ struct Header {
 
 struct ConcealmentEntry {
    std::size_t offset;
-   std::atomic<bool> in_use;
+   std::atomic_flag in_use;
    std::atomic<bool> stale;
 
    ConcealmentEntry(const std::size_t offset, const bool in_use, const bool stale) : offset(offset), in_use(in_use), stale(stale) {}
