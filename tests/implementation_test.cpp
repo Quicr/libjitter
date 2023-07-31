@@ -251,7 +251,7 @@ TEST_CASE("libjitter_implementation::update_existing_partial_read") {
   {
     std::uint8_t* dest = reinterpret_cast<std::uint8_t*>(malloc(frame_size * frames_per_packet / 2));
     void* seq = malloc(frame_size * frames_per_packet / 2);
-    memset(seq, updated_data, frame_size * frames_per_packet);
+    memset(seq, updated_data, frame_size * frames_per_packet / 2);
     const std::size_t dequeued = buffer->Dequeue(dest, frame_size * frames_per_packet / 2, frames_per_packet / 2);
     CHECK_EQ(frames_per_packet / 2, dequeued);
     CHECK_EQ(0, memcmp(dest, seq, frame_size * frames_per_packet / 2));
@@ -294,13 +294,12 @@ TEST_CASE("libjitter_implementation::checkPacketInSlot") {
           });
   CHECK_EQ(enqueued, packet.elements);
 
-  Header retrieved{};
   const std::uint8_t* read = buffer.GetReadPointerAtPacketOffset(0);
-  memcpy(&retrieved, read - JitterBuffer::METADATA_SIZE, JitterBuffer::METADATA_SIZE);
+  const Header* retrieved = reinterpret_cast<const Header*>(read - JitterBuffer::METADATA_SIZE);
 
   // Make sure the header looks good, and the data has been updated.
-  CHECK_EQ(retrieved.sequence_number, packet.sequence_number);
-  CHECK_EQ(retrieved.elements, packet.elements);
+  CHECK_EQ(retrieved->sequence_number, packet.sequence_number);
+  CHECK_EQ(retrieved->elements, packet.elements);
   CHECK_EQ(0, memcmp(read, packet.data, packet.length));
   free(packet.data);
 }

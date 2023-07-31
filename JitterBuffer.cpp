@@ -137,7 +137,6 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     // Is this packet of data old enough?
     const std::uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::uint64_t age = now_ms - header.timestamp;
-    assert(age >= 0);
     if (age < static_cast<std::uint64_t>(min_length.count())) {
       // Not old enough. Stop here and rewind pointer back to header for the next read.
       UnwindRead(METADATA_SIZE);

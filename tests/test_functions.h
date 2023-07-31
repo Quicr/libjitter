@@ -20,9 +20,8 @@ static Packet makeTestPacket(const unsigned long sequence_number, const std::siz
 
 [[maybe_unused]] static bool checkPacketInSlot(const JitterBuffer* buffer, const Packet& packet, const std::size_t slot) {
   const std::uint8_t *read = buffer->GetReadPointerAtPacketOffset(slot);
-  Header header{};
-  memcpy(&header, read - JitterBuffer::METADATA_SIZE, JitterBuffer::METADATA_SIZE);
-  return packet.sequence_number == header.sequence_number &&
-         packet.elements == header.elements &&
+  const Header* header = reinterpret_cast<const Header*>(read - JitterBuffer::METADATA_SIZE);
+  return packet.sequence_number == header->sequence_number &&
+         packet.elements == header->elements &&
          memcmp(packet.data, read, packet.length) == 0;
 }
