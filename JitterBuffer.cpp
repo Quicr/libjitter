@@ -126,7 +126,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     assert(header.elements > 0);
 
     // If this is concealement, check the use flag.
-    if (header.concealment && header.in_use.test_and_set()) {
+    if (header.concealment && header.in_use.test_and_set(std::memory_order::acquire)) {
       // This packet is currently being updated from concealment data to real data.
       // It's not safe for us to read it - skip to the next available packet.
       std::cerr << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::endl;
@@ -145,7 +145,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       const std::size_t dequeued_elements = dequeued_bytes / element_size;
       written_elements -= dequeued_elements;
       if (header.concealment) {
-       header.in_use.clear();
+       header.in_use.clear(std::memory_order::release);
       }
       return dequeued_elements;
     }
@@ -178,7 +178,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       assert(header.elements > 0);
       if (header.concealment) {
         clear_header = false;
-        header.in_use.clear();
+        header.in_use.clear(std::memory_order::release);
       }
       memcpy(buffer + read_offset, &header, METADATA_SIZE);
 
@@ -186,20 +186,20 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       if (written >= (METADATA_SIZE * 2) + header.elements * element_size) {
         std::size_t next_header_offset = (read_offset + METADATA_SIZE + header.elements * element_size) % max_size_bytes;
         Header* next_header = reinterpret_cast<Header*>(buffer + next_header_offset);
-        if (next_header->in_use.test_and_set()) {
+        if (next_header->in_use.test_and_set(std::memory_order::acquire)) {
           // We couldn't get the lock. This is bad.
           std::cerr << "This is bad" << std::endl;
           assert(false);
         }
         assert(next_header->sequence_number == header.sequence_number + 1);
         next_header->previous_elements = header.elements;
-        next_header->in_use.clear();
+        next_header->in_use.clear(std::memory_order::release);
         memcpy(buffer + next_header_offset, next_header, METADATA_SIZE);
       }
     }
 
     if (header.concealment && clear_header) {
-      header.in_use.clear();
+      header.in_use.clear(std::memory_order::release);
     }
     [[maybe_unused]] const std::size_t dequeued_elements = bytes_dequeued / element_size;
     assert(dequeued_elements <= originally_available); // We should not get more than available.
@@ -228,7 +228,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
     // Parse the header that should be located here.
     header = reinterpret_cast<Header*>(buffer + local_write_offset);
     if (header->sequence_number == packet.sequence_number) break;
-    if (header->in_use.test_and_set()) {
+    if (header->in_use.test_and_set(std::memory_order::acquire)) {
       std::cout << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::endl;
       return 0;
     }
@@ -237,12 +237,12 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
     assert(to_move <= written_at_start);
     local_write_offset = ((local_write_offset - to_move) + to_move * max_size_bytes) % max_size_bytes;
     written_at_start -= to_move;
-    header->in_use.clear();
+    header->in_use.clear(std::memory_order::release);
   }
 
   // We found the target packet.
   assert(header->concealment);
-  if (header->in_use.test_and_set()) {
+  if (header->in_use.test_and_set(std::memory_order::acquire)) {
     // It's being read, we can't update it.
     std::cout << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::endl;
     return 0;
@@ -252,7 +252,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   const std::size_t source_offset_frames = packet.elements - header->elements;
   memcpy(buffer + ((local_write_offset + METADATA_SIZE) % max_size_bytes), reinterpret_cast<std::uint8_t*>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
   header->concealment = false;
-  header->in_use.clear();
+  header->in_use.clear(std::memory_order::release);
   return header->elements;
 }
 
