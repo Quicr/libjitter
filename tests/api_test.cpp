@@ -434,4 +434,62 @@ TEST_CASE("libjitter::buffer_too_small")
                        const std::invalid_argument&);
 }
 
+TEST_CASE("libjitter::update_expired")
+{
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 100000, milliseconds(100), milliseconds(0));
+  // Write 1.
+  Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
+  std::vector<Packet> packets = std::vector<Packet>();
+  packets.push_back(packet);
+  std::size_t enqueued = buffer.Enqueue(
+    packets,
+    [](const std::vector<Packet> &) {
+      FAIL("Unexpected concealment");
+    },
+    [](const std::vector<Packet> &) {
+      FAIL("Unexpected free");
+    });
+  CHECK_EQ(enqueued, packet.elements);
+  free(packet.data);
+
+  // Write 3.
+  Packet packet3 = makeTestPacket(3, frame_size, frames_per_packet);
+  std::vector<Packet> packets_3 = std::vector<Packet>();
+  packets_3.push_back(packet3);
+  enqueued = buffer.Enqueue(
+    packets_3,
+    [](std::vector<Packet> &packets) {
+      CHECK_EQ(1, packets.size());
+      Packet& packet = packets.at(0);
+      packet.data = calloc(packet.length, 1);
+    },
+    [](const std::vector<Packet> &packets) {
+      CHECK_EQ(1, packets.size());
+      free(packets.at(0).data);
+    });
+  CHECK_EQ(enqueued, packet3.elements * 2);
+  free(packet3.data);
+
+  // Read 1 + 2.
+  auto* dest = reinterpret_cast<std::uint8_t*>(malloc(frames_per_packet * frame_size * 2));
+  const std::size_t dequeued = buffer.Dequeue(dest, frames_per_packet * frame_size * 2, frames_per_packet * 2);
+  CHECK_EQ(dequeued, frames_per_packet * 2);
+
+  // Update 2.
+  Packet update = makeTestPacket(2, frame_size, frames_per_packet);
+  std::vector<Packet> update_packets = std::vector<Packet>();
+  update_packets.push_back(update);
+  const std::size_t updated = buffer.Enqueue(
+          update_packets,
+          [](const std::vector<Packet> &) {
+            FAIL("Unexpected concealment");
+          },
+          [](const std::vector<Packet> &) {
+            FAIL("Unexpected free");
+          });
+  CHECK_EQ(0, updated);
+}
+
 // TODO: Test for only dequeing some of packet, then dequeueing the rest.

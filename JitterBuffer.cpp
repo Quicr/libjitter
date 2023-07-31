@@ -233,7 +233,12 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
     }
     assert(header->previous_elements > 0);
     std::size_t to_move = (header->previous_elements * element_size) + METADATA_SIZE;
-    assert(to_move <= written_at_start);
+    if (to_move > written_at_start) {
+      // Couldn't find it, probably already read.
+      std::cout << "[" << packet.sequence_number << "] Couldn't find target packet." << std::endl;
+      header->in_use.clear(std::memory_order::release);
+      return 0;
+    }
     local_write_offset = ((local_write_offset - to_move) + to_move * max_size_bytes) % max_size_bytes;
     written_at_start -= to_move;
     header->in_use.clear(std::memory_order::release);
