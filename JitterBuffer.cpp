@@ -125,22 +125,13 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     assert(copied == METADATA_SIZE);
     assert(header.elements > 0);
 
-    // If this is concealement, try and get the concealment entry.
-    auto concealment_iterator = concealment_packet_offsets.end();
-    if (header.concealment) {
-      concealment_iterator = concealment_packet_offsets.find(header.sequence_number);
-      if (concealment_iterator == concealment_packet_offsets.end()) {
-        // We couldn't find the entry for this packet.
-        std::cout << "[" << header.sequence_number << "] Concealment entry not found for concealment packet." << std::endl;
-        return 0;
-      }
-      ConcealmentEntry& entry = concealment_iterator->second;
-      if (entry.in_use.test_and_set()) {
-       // This packet is currently being updated from concealment data to real data.
-       // It's not safe for us to read it - skip to the next available packet.
-       ForwardRead(header.elements * element_size);
-       continue;
-      }
+    // If this is concealement, check the use flag.
+    if (header.concealment && header.in_use.test_and_set()) {
+      // This packet is currently being updated from concealment data to real data.
+      // It's not safe for us to read it - skip to the next available packet.
+      std::cerr << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::endl;
+      ForwardRead(header.elements * element_size);
+      continue;
     }
 
     // Is this packet of data old enough?
@@ -154,7 +145,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       const std::size_t dequeued_elements = dequeued_bytes / element_size;
       written_elements -= dequeued_elements;
       if (header.concealment) {
-       concealment_iterator->second.in_use.clear();
+       header.in_use.clear();
       }
       return dequeued_elements;
     }
@@ -177,6 +168,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     assert(bytes_dequeued % element_size == 0); // We should only get whole elements out.
     destination_offset += bytes_dequeued;
     [[maybe_unused]] const std::size_t originally_available = header.elements;
+    bool clear_header = true;
     if (bytes_dequeued < available_bytes) {
       // We didn't fully empty a packet, update the header to reflect what's left.
       UnwindRead(METADATA_SIZE);
@@ -184,20 +176,30 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       assert(remaining_bytes % element_size == 0); // We should only get whole elements.
       header.elements = remaining_bytes / element_size;
       assert(header.elements > 0);
-      memcpy(buffer + read_offset, &header, METADATA_SIZE);
       if (header.concealment) {
-        // Update the concealment packet offset to the new header location.;
-       concealment_iterator->second.offset = read_offset;
+        clear_header = false;
+        header.in_use.clear();
       }
-    } else {
-      if (header.concealment) {
-       // We read the whole thing, mark the concealment entry for deletion.
-       concealment_iterator->second.stale = true;
+      memcpy(buffer + read_offset, &header, METADATA_SIZE);
+
+      // We need to update the next header's previous elements too.
+      if (written >= (METADATA_SIZE * 2) + header.elements * element_size) {
+        std::size_t next_header_offset = (read_offset + METADATA_SIZE + header.elements * element_size) % max_size_bytes;
+        Header* next_header = reinterpret_cast<Header*>(buffer + next_header_offset);
+        if (next_header->in_use.test_and_set()) {
+          // We couldn't get the lock. This is bad.
+          std::cerr << "This is bad" << std::endl;
+          assert(false);
+        }
+        assert(next_header->sequence_number == header.sequence_number + 1);
+        next_header->previous_elements = header.elements;
+        next_header->in_use.clear();
+        memcpy(buffer + next_header_offset, next_header, METADATA_SIZE);
       }
     }
 
-    if (header.concealment) {
-      concealment_iterator->second.in_use.clear();
+    if (header.concealment && clear_header) {
+      header.in_use.clear();
     }
     [[maybe_unused]] const std::size_t dequeued_elements = bytes_dequeued / element_size;
     assert(dequeued_elements <= originally_available); // We should not get more than available.
@@ -212,39 +214,45 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 }
 
 std::size_t JitterBuffer::Update(const Packet &packet) {
-  // Does our concealment map have this packet?
-  const auto concealment_offset = concealment_packet_offsets.find(packet.sequence_number);
-  if (concealment_offset == concealment_packet_offsets.end()) {
-    // Not sure what to do here.
-    std::cout << "[" << packet.sequence_number << "] Update called on a packet that is not in the concealment map" << std::endl;
-    return 0;
+  // Get a snapshot of the current state.
+  std::size_t local_write_offset = write_offset;
+  std::size_t written_at_start = written;
+
+  // Get the first header by moving back elements + metadata.
+  const std::size_t this_chunk = latest_written_elements * element_size + METADATA_SIZE;
+  assert(written_at_start >= this_chunk);
+  written_at_start -= this_chunk;
+  local_write_offset = ((local_write_offset - this_chunk) + this_chunk * max_size_bytes) % max_size_bytes;
+  Header* header;
+  while(true) {
+    // Parse the header that should be located here.
+    header = reinterpret_cast<Header*>(buffer + local_write_offset);
+    if (header->sequence_number == packet.sequence_number) break;
+    if (header->in_use.test_and_set()) {
+      std::cout << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::endl;
+      return 0;
+    }
+    assert(header->previous_elements > 0);
+    std::size_t to_move = (header->previous_elements * element_size) + METADATA_SIZE;
+    assert(to_move <= written_at_start);
+    local_write_offset = ((local_write_offset - to_move) + to_move * max_size_bytes) % max_size_bytes;
+    written_at_start -= to_move;
+    header->in_use.clear();
   }
 
-  // Get the header for this concealment packet.
-  ConcealmentEntry& concealment_entry = concealment_offset->second;
-  if (concealment_entry.in_use.test_and_set()) {
+  // We found the target packet.
+  assert(header->concealment);
+  if (header->in_use.test_and_set()) {
     // It's being read, we can't update it.
     std::cout << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::endl;
     return 0;
   }
 
-  // Check the header still makes sense (it may have been overwritten).
-  auto header = reinterpret_cast<Header*>(buffer + concealment_entry.offset);
-  if (header->sequence_number != packet.sequence_number) {
-    std::cout << "[" << packet.sequence_number << "] Concealment map may be out of date" << std::endl;
-    concealment_packet_offsets.erase(concealment_offset);
-    concealment_entry.in_use.clear();
-    return 0;
-  }
-
   // Copy in the updated data.
   const std::size_t source_offset_frames = packet.elements - header->elements;
-  memcpy(buffer + concealment_entry.offset + METADATA_SIZE, reinterpret_cast<std::uint8_t*>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
-  concealment_entry.in_use.clear();
-
-  // Remove this packet from the concealment map.
+  memcpy(buffer + ((local_write_offset + METADATA_SIZE) % max_size_bytes), reinterpret_cast<std::uint8_t*>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
   header->concealment = false;
-  concealment_packet_offsets.erase(concealment_offset);
+  header->in_use.clear();
   return header->elements;
 }
 
@@ -269,11 +277,9 @@ std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet, const bool concea
   assert(enqueued_element_bytes % element_size == 0); // We should write whole elements.
   header.elements = enqueued_element_bytes / element_size;
   assert(header.elements > 0);
-  if (concealment) {
-    header.concealment = true;
-    [[maybe_unused]] auto [iterator, inserted] = concealment_packet_offsets.try_emplace(packet.sequence_number, header_offset, false);
-    assert(inserted); // We should not have a concealment packet with this sequence number already.
-  }
+  header.previous_elements = latest_written_elements;
+  latest_written_elements = header.elements;
+  header.concealment = concealment;
   memcpy(buffer + header_offset, &header, METADATA_SIZE);
   ForwardWrite(enqueued_element_bytes + METADATA_SIZE);
   assert(written <= max_size_bytes);
