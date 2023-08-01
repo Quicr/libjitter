@@ -8,7 +8,7 @@ target_include_directories(libjitter PUBLIC include)
 target_compile_options(libjitter PRIVATE -Wall -Wextra -Wpedantic -Werror)
 set_target_properties(libjitter PROPERTIES
     POSITION_INDEPENDENT_CODE ON
-    CXX_STANDARD 17)
+    CXX_STANDARD 20)
 
 add_library(clibjitter SHARED libjitter.cpp include/libjitter.h)
 target_include_directories(clibjitter PUBLIC include)
