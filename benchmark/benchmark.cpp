@@ -98,3 +98,77 @@ static void libjitter_concealment(benchmark::State &state) {
   }
 }
 BENCHMARK(libjitter_concealment)->DenseRange(1, 20, 1)->Setup(DoSetup)->Teardown(DoTeardown)->Iterations(1000);
+
+static void libjitter_concealment_update(benchmark::State &state) {
+  std::size_t sequence_number = 0;
+
+  for (auto _: state) {
+    auto packet = Packet{
+            .data = data,
+            .elements = frames_per_packet,
+            .length = frame_size * frames_per_packet,
+            .sequence_number = ++sequence_number};
+    std::vector<Packet> packets = std::vector<Packet>();
+    packets.push_back(packet);
+    const std::size_t enqueued = buffer->Enqueue(
+            packets,
+            [](const std::vector<Packet> &) {
+              assert(false);
+            },
+            [](const std::vector<Packet> &) {
+              assert(false);
+            });
+    if (enqueued == 0) {
+      state.SkipWithMessage("Full");
+      break;
+    }
+    sequence_number += state.range(0);
+    auto next = Packet{
+            .data = data,
+            .elements = frames_per_packet,
+            .length = frame_size * frames_per_packet,
+            .sequence_number = sequence_number};
+    std::vector<Packet> nexts = std::vector<Packet>();
+    nexts.push_back(next);
+    const std::size_t concealed = buffer->Enqueue(
+            nexts,
+            [](std::vector<Packet> &packets) {
+              for (Packet &packet: packets) {
+                packet.data = malloc(packet.length);
+              }
+            },
+            [](std::vector<Packet> &packets) {
+              for (Packet &packet: packets) {
+                free(packet.data);
+              }
+            });
+    if (concealed == 0) {
+      state.SkipWithMessage("Full");
+      break;
+    }
+
+    // Update all the concealement packets with real data.
+    for (unsigned long index = 2; index <= state.range() + 1; index++) {
+        auto update = Packet{
+            .data = data,
+            .elements = frames_per_packet,
+            .length = frame_size * frames_per_packet,
+            .sequence_number = index};
+        std::vector<Packet> updates = std::vector<Packet>();
+        updates.push_back(next);
+        const std::size_t updated = buffer->Enqueue(
+            updates,
+            [](std::vector<Packet> &packets) {
+              assert(false);
+            },
+            [](std::vector<Packet> &packets) {
+              assert(false);
+            });
+        if (updated == 0) {
+            state.SkipWithMessage("Full");
+            break;
+        }
+    }
+  }
+}
+BENCHMARK(libjitter_concealment_update)->DenseRange(1, 20, 1)->Setup(DoSetup)->Teardown(DoTeardown)->Iterations(100);
