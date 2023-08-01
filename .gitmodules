@@ -1,3 +1,6 @@
 [submodule "dependencies/doctest"]
 	path = dependencies/doctest
 	url = git@github.com:doctest/doctest.git
+[submodule "dependencies/benchmark"]
+	path = dependencies/benchmark
+	url = https://github.com/google/benchmark.git

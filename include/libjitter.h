@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-typedef const void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_packets, void* user_data);
+typedef void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_packets, void* user_data);
 
 /**
    * @brief Construct a new Jitter Buffer object.

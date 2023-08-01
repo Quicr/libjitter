@@ -1,5 +1,6 @@
 #include "libjitter.h"
 #include "JitterBuffer.hh"
+#include <iostream>
 
 extern "C" {
 void *JitterInit(const size_t element_size,
@@ -26,15 +27,25 @@ size_t JitterEnqueue(void *libjitter,
   };
 
   const std::vector<Packet> vector(packets, packets + elements);
-  return buffer->Enqueue(vector, callback);
+  try {
+    return buffer->Enqueue(vector, callback);
+  } catch (const std::exception& ex) {
+    std::cerr << ex.what() << std::endl;
+    return 0;
+  }
 }
 
 size_t JitterDequeue(void *libjitter,
                      void *destination,
                      const size_t destination_length,
                      const size_t elements) {
-  auto *buffer = static_cast<JitterBuffer *>(libjitter);
-  return buffer->Dequeue((std::uint8_t *) destination, destination_length, elements);
+  try {
+    auto *buffer = static_cast<JitterBuffer *>(libjitter);
+    return buffer->Dequeue((std::uint8_t *) destination, destination_length, elements);
+  } catch (const std::exception& ex) {
+    std::cerr << ex.what() << std::endl;
+    return 0;
+  }
 }
 
 void JitterDestroy(void *libjitter) {
