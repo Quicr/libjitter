@@ -77,7 +77,7 @@ static void libjitter_concealment(benchmark::State &state) {
             nexts,
             [](std::vector<Packet> &packets) {
               for (Packet &packet: packets) {
-                packet.data = malloc(packet.length);
+                memset(packet.data, 0, packet.length);
               }
             });
     if (concealed == 0) {
@@ -120,7 +120,7 @@ static void libjitter_concealment_update(benchmark::State &state) {
             nexts,
             [](std::vector<Packet> &packets) {
               for (Packet &packet: packets) {
-                packet.data = malloc(packet.length);
+                memset(packet.data, 0, packet.length);
               }
             });
     if (concealed == 0) {
