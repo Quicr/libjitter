@@ -79,11 +79,14 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
          };
          CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, true, 0);
          write_offset = (write_offset + METADATA_SIZE) % max_size_bytes;
-         concealment_packets[sequence_offset].sequence_number = header.sequence_number;
-         concealment_packets[sequence_offset].elements = header.elements;
-         concealment_packets[sequence_offset].length = header.elements * element_size;
-         concealment_packets[sequence_offset].data = buffer + write_offset;
-         write_offset = (write_offset + header.elements * element_size) % max_size_bytes;
+         const std::size_t length = header.elements * element_size;
+         concealment_packets[sequence_offset] = {
+          .sequence_number = header.sequence_number,
+          .elements = header.elements,
+          .length = length,
+          .data = buffer + write_offset
+         };
+         write_offset = (write_offset + length) % max_size_bytes;
        }
        concealment_callback(concealment_packets);
 
