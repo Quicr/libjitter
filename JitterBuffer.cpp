@@ -82,9 +82,9 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
          const std::size_t length = header.elements * element_size;
          concealment_packets[sequence_offset] = {
           .sequence_number = header.sequence_number,
-          .elements = header.elements,
+          .data = buffer + write_offset,
           .length = length,
-          .data = buffer + write_offset
+          .elements = header.elements,
          };
          write_offset = (write_offset + length) % max_size_bytes;
        }
