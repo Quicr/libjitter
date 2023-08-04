@@ -28,6 +28,25 @@ TEST_CASE("libjitter::enqueue") {
   free(packet.data);
 }
 
+TEST_CASE("libjitter:::min_fill") {
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(20));
+  Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
+  std::vector<Packet> packets = std::vector<Packet>();
+  packets.push_back(packet);
+  const std::size_t enqueued = buffer.Enqueue(
+          packets,
+          [frames_per_packet](const std::vector<Packet> &packets) {
+            CHECK_EQ(packets.size(), 1);
+            CHECK_EQ(packets[0].sequence_number, 2);
+            CHECK_EQ(packets[0].elements, frames_per_packet);
+            CHECK_EQ(packets[0].length, packets[0].elements * frame_size);
+          });
+  CHECK_EQ(enqueued, packet.elements * 2);
+  free(packet.data);
+}
+
 TEST_CASE("libjitter::dequeue_empty") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
@@ -279,25 +298,26 @@ TEST_CASE("libjitter::fill_buffer") {
 
 TEST_CASE("libjitter::too_old") {
   const auto max_age = milliseconds(100);
-  auto buffer = JitterBuffer(sizeof(std::size_t), 1, 100000, max_age, milliseconds(0));
+  const std::size_t frames_per_packet = 480;
+  auto buffer = JitterBuffer(sizeof(std::size_t), frames_per_packet, 48000, max_age, milliseconds(0));
 
-  Packet old_packet = makeTestPacket(1, sizeof(std::size_t), 1);
+  Packet old_packet = makeTestPacket(1, sizeof(std::size_t), frames_per_packet);
   std::vector<Packet> old_packets;
   old_packets.push_back(old_packet);
   std::size_t enqueued = buffer.Enqueue(old_packets, [](const std::vector<Packet>&){});
-  REQUIRE_EQ(1, enqueued);
+  REQUIRE_EQ(frames_per_packet, enqueued);
   std::this_thread::sleep_for(max_age);
 
-  Packet packet = makeTestPacket(2, sizeof(std::size_t), 1);
+  Packet packet = makeTestPacket(2, sizeof(std::size_t), frames_per_packet);
   std::vector<Packet> packets;
   packets.push_back(packet);
   enqueued = buffer.Enqueue(packets, [](const std::vector<Packet>&){});
-  REQUIRE_EQ(1, enqueued);
+  REQUIRE_EQ(frames_per_packet, enqueued);
 
   // Now try and dequeue.  We should get the second packet back.
-  auto *destination = reinterpret_cast<std::uint8_t*>(calloc(1, sizeof(std::size_t)));
-  const std::size_t dequeued = buffer.Dequeue(destination, sizeof(std::size_t), 1);
-  REQUIRE_EQ(1, dequeued);
+  auto *destination = reinterpret_cast<std::uint8_t*>(calloc(1, sizeof(std::size_t) * frames_per_packet));
+  const std::size_t dequeued = buffer.Dequeue(destination, sizeof(std::size_t) * frames_per_packet, frames_per_packet);
+  REQUIRE_EQ(frames_per_packet, dequeued);
   REQUIRE_NE(0, memcmp(destination, old_packet.data, sizeof(std::size_t)));
   REQUIRE_EQ(0, memcmp(destination, packet.data, sizeof(std::size_t)));
   free(old_packet.data);
@@ -307,25 +327,31 @@ TEST_CASE("libjitter::too_old") {
 
 TEST_CASE("libjitter::buffer_too_small")
 {
-  auto buffer = JitterBuffer(1, 1, 100000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(2, 480, 100000, milliseconds(100), milliseconds(0));
   void* dest = malloc(1);
-  CHECK_THROWS_WITH_AS(buffer.Dequeue(reinterpret_cast<std::uint8_t*>(dest), 1, 2), "Provided buffer too small. Was: 1, need: 2" ,const std::invalid_argument&);
+  CHECK_THROWS_WITH_AS(buffer.Dequeue(reinterpret_cast<std::uint8_t*>(dest), 1, 480), "Provided buffer too small. Was: 1, need: 960" ,const std::invalid_argument&);
   free(dest);
 }
 
-TEST_CASE("libjitter::buffer_too_small")
+TEST_CASE("libjitter::element_mismatch")
 {
-  auto buffer = JitterBuffer(1, 1, 100000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(2, 480, 96000, milliseconds(100), milliseconds(0));
   auto packet = Packet {
     .sequence_number = 1,
     .data = nullptr,
     .length = 0,
-    .elements = 2,
+    .elements = 960,
   };
   std::vector<Packet> packets;
   packets.push_back(packet);
   CHECK_THROWS_WITH_AS(buffer.Enqueue(packets, [](const std::vector<Packet>&){}),
-                       "Supplied packet elements must match declared number of elements. Got: 2, expected: 1",
+                       "Supplied packet elements must match declared number of elements. Got: 960, expected: 480",
+                       const std::invalid_argument&);
+}
+
+TEST_CASE("libjitter::packet_less_than_1ms") {
+  CHECK_THROWS_WITH_AS(JitterBuffer(2, 10, 48000, milliseconds(100), milliseconds(0)),
+                       "Packets should be at least 1ms.",
                        const std::invalid_argument&);
 }
 

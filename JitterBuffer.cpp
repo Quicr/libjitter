@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cassert>
 #include <csignal>
+#include <cmath>
 #include <type_traits>
 #include <sstream>
 #ifdef __APPLE__
@@ -23,6 +24,12 @@ JitterBuffer::JitterBuffer(const std::size_t element_size, const std::size_t pac
       write_offset(0),
       written(0),
       written_elements(0) {
+  // Packets should be at least 1ms.
+  const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate);
+  if (each_packet.count() < 1) {
+    throw std::invalid_argument("Packets should be at least 1ms.");
+  }
+
   // Ensure atomic variables are lock free.
   static_assert(std::is_same<decltype(written), std::atomic<std::size_t>>::value);
   static_assert(std::is_same<decltype(written_elements), std::atomic<std::size_t>>::value);
@@ -61,40 +68,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
      const std::size_t missing = packet.sequence_number - last - 1;
      if (missing > 0) {
        std::cout << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::endl;
-       // Alter missing to be the smallest of the missing packets or what we can currently fit in the buffer.
-       const std::size_t space = max_size_bytes - written;
-       const std::size_t space_elements = space / (element_size + METADATA_SIZE);
-       const std::size_t to_conceal = std::min(missing, space_elements);
-       if (missing != to_conceal) {
-         std::cout << "Couldn't fit all missing. Asking for: " << to_conceal << "/" << missing << std::endl;
-       }
-       std::vector<Packet> concealment_packets = std::vector<Packet>(to_conceal);
-       for (std::size_t sequence_offset = 0; sequence_offset < to_conceal; sequence_offset++) {
-         // We need to write the header for this packet.
-         const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-         Header header = {
-           .sequence_number = static_cast<uint32_t>(last + sequence_offset + 1),
-           .elements = packet_elements,
-           .timestamp = static_cast<uint64_t>(now_ms)
-         };
-         CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, true, 0);
-         write_offset = (write_offset + METADATA_SIZE) % max_size_bytes;
-         const std::size_t length = header.elements * element_size;
-         concealment_packets[sequence_offset] = {
-          .sequence_number = header.sequence_number,
-          .data = buffer + write_offset,
-          .length = length,
-          .elements = header.elements,
-         };
-         write_offset = (write_offset + length) % max_size_bytes;
-       }
-       concealment_callback(concealment_packets);
-
-       // Now that we've finished providing data, update values for the reader.
-       written += to_conceal * ((packet_elements * element_size) + METADATA_SIZE);
-       written_elements += to_conceal * packet_elements;
-       last_written_sequence_number = last + to_conceal;
-       enqueued += packet_elements * to_conceal;
+       enqueued += GenerateConcealment(missing, concealment_callback);
      }
    }
 
@@ -113,6 +87,19 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
     enqueued += enqueued_elements;
     last_written_sequence_number = packet.sequence_number;
   }
+
+  // Now that we've written, check the fill level.
+  // If it's below the min fill level, we need to conceal.
+  const milliseconds gap_to_min = min_length - GetCurrentDepth();
+  if (gap_to_min.count() > 0) {
+    // How many packets would cover this gap?
+    const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate.count());
+    assert(each_packet.count() > 0);
+    const std::size_t to_conceal = std::ceil((float)gap_to_min.count() / (float)each_packet.count());
+    std::cout << "Below min fill level. Need: " << to_conceal << std::endl;
+    enqueued += GenerateConcealment(to_conceal, concealment_callback);
+  }
+
   return enqueued;
 }
 
@@ -139,19 +126,10 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     [[maybe_unused]] const std::size_t copied = CopyOutOfBuffer((std::uint8_t*)&header, METADATA_SIZE, METADATA_SIZE, true);
     assert(copied == METADATA_SIZE);
     assert(header.elements > 0);
-    // Is this packet of data old enough?
+
+    // Check the age of this packet.
     const std::uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::uint64_t age = now_ms - header.timestamp;
-    assert(age >= 0);
-    if (age < static_cast<std::uint64_t>(min_length.count())) {
-      // Not old enough. Stop here and rewind pointer back to header for the next read.
-      UnwindRead(METADATA_SIZE);
-      assert(dequeued_bytes % element_size == 0);
-      const std::size_t dequeued_elements = dequeued_bytes / element_size;
-      written_elements -= dequeued_elements;
-      return dequeued_elements;
-    }
-
     if (age >= static_cast<std::uint64_t>(max_length.count())) {
       // It's too old, throw this away and run to the next.
       assert(header.elements <= packet_elements);
@@ -191,6 +169,44 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
   assert(dequeued_elements <= elements); // We should not get more than asked for.
   written_elements -= dequeued_elements;
   return dequeued_elements;
+}
+
+std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const ConcealmentCallback& callback) {
+  // Alter missing to be the smallest of the missing packets or what we can currently fit in the buffer.
+  const std::size_t space = max_size_bytes - written;
+  const std::size_t space_elements = space / (element_size + METADATA_SIZE);
+  const std::size_t to_conceal = std::min(packets, space_elements);
+  const unsigned long last = last_written_sequence_number.value();
+  if (packets != to_conceal) {
+    std::cout << "Couldn't fit all missing. Asking for: " << to_conceal << "/" << packets << std::endl;
+  }
+  std::vector<Packet> concealment_packets = std::vector<Packet>(to_conceal);
+  for (std::size_t sequence_offset = 0; sequence_offset < to_conceal; sequence_offset++) {
+    // We need to write the header for this packet.
+    const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    Header header = {
+      .sequence_number = static_cast<uint32_t>(last + sequence_offset + 1),
+      .elements = packet_elements,
+      .timestamp = static_cast<uint64_t>(now_ms)
+    };
+    CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, true, 0);
+    write_offset = (write_offset + METADATA_SIZE) % max_size_bytes;
+    const std::size_t length = header.elements * element_size;
+    concealment_packets[sequence_offset] = {
+    .sequence_number = header.sequence_number,
+    .data = buffer + write_offset,
+    .length = length,
+    .elements = header.elements,
+    };
+    write_offset = (write_offset + length) % max_size_bytes;
+  }
+  callback(concealment_packets);
+
+  // Now that we've finished providing data, update values for the reader.
+  written += to_conceal * ((packet_elements * element_size) + METADATA_SIZE);
+  written_elements += to_conceal * packet_elements;
+  last_written_sequence_number = last + to_conceal;
+  return packet_elements * to_conceal;
 }
 
 std::size_t JitterBuffer::Update(const Packet &packet) {

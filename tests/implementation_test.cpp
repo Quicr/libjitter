@@ -11,8 +11,8 @@ using namespace std::chrono;
 
 TEST_CASE("libjitter_implementation::enqueue") {
   const std::size_t frame_size = sizeof(int);
-  const std::size_t frames_per_packet = 1;
-  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(20));
+  const std::size_t frames_per_packet = 480;
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
   auto inspector = BufferInspector(&buffer);
 
   // Enqueue test packet.
@@ -35,7 +35,7 @@ TEST_CASE("libjitter_implementation::enqueue") {
 
 TEST_CASE("libjitter_implementation::concealment") {
   const std::size_t frame_size = 4;
-  const std::size_t frames_per_packet = 1;
+  const std::size_t frames_per_packet = 480;
   auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
 
   // Enqueue sequence 1.
@@ -168,30 +168,32 @@ TEST_CASE("libjitter_implementation::checkPacketInSlot") {
 }
 
 TEST_CASE("libjitter_implementation::run") {
-  auto buffer = JitterBuffer(sizeof(std::size_t), 1, 100000, milliseconds(100), milliseconds(0));
-  std::thread enqueue([&buffer](){
-    for (std::size_t index = 0; index < 1000; index++) {
+  const std::size_t frames_per_packet = 480;
+  const std::size_t iterations = 250;
+  auto buffer = JitterBuffer(sizeof(std::size_t), frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  std::thread enqueue([&buffer, frames_per_packet](){
+    for (std::size_t index = 0; index < iterations; index++) {
       auto packet = Packet {
         .sequence_number = index,
         .data = calloc(1, sizeof(std::size_t)),
         .length = sizeof(std::size_t),
-        .elements = 1,
+        .elements = frames_per_packet,
       };
       memcpy(packet.data, &index, sizeof(index));
       std::vector<Packet> packets;
       packets.push_back(packet);
       const std::size_t enqueued = buffer.Enqueue(packets, [](const std::vector<Packet>&){ FAIL(""); });
       free(packet.data);
-      REQUIRE_EQ(1, enqueued);
+      REQUIRE_EQ(frames_per_packet, enqueued);
       std::this_thread::sleep_for(microseconds(10));
     }
   });
 
-  std::thread dequeue([&buffer](){
-    for (std::size_t index = 0; index < 1000; index++) {
-      auto* destination = static_cast<std::uint8_t*>(calloc(1, sizeof(std::size_t)));
-      const std::size_t dequeued = buffer.Dequeue(destination, sizeof(std::size_t), 1);
-      REQUIRE((dequeued == 0 || dequeued == 1));
+  std::thread dequeue([&buffer, frames_per_packet](){
+    for (std::size_t index = 0; index < iterations; index++) {
+      auto* destination = static_cast<std::uint8_t*>(calloc(1, sizeof(std::size_t) * frames_per_packet));
+      const std::size_t dequeued = buffer.Dequeue(destination, sizeof(std::size_t) * frames_per_packet, frames_per_packet);
+      REQUIRE((dequeued == 0 || dequeued == frames_per_packet));
       std::this_thread::sleep_for(microseconds(10));
       free(destination);
     }

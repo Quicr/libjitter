@@ -96,6 +96,7 @@ class JitterBuffer {
   std::optional<unsigned long> last_written_sequence_number;
   void* vm_user_data;
 
+  std::size_t GenerateConcealment(std::size_t packets, const ConcealmentCallback &callback);
   std::size_t Update(const Packet &packet);
   std::size_t CopyIntoBuffer(const Packet &packet);
   std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length, bool manual_increment, std::size_t offset_offset_bytes);
