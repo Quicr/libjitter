@@ -96,8 +96,10 @@ class JitterBuffer {
   std::atomic<std::size_t> written;
   std::atomic<std::size_t> written_elements;
   std::optional<unsigned long> last_written_sequence_number;
+  std::atomic<bool> play;
   void* vm_user_data;
   std::size_t latest_written_elements;
+  std::atomic<unsigned long> dont_walk_beyond;
 
   std::size_t GenerateConcealment(std::size_t packets, const ConcealmentCallback &callback);
   std::size_t Update(const Packet &packet);
