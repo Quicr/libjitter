@@ -6,6 +6,7 @@
 #include <map>
 #include "test_functions.h"
 #include <thread>
+#include <iostream>
 
 using namespace std::chrono;
 
@@ -131,13 +132,109 @@ TEST_CASE("libjitter_implementation::update_existing") {
             [](const std::vector<Packet> &) {
               FAIL("Unexpected concealment");
             });
-    // FIXME: This fails because of bad backwards search.
     CHECK_EQ(enqueued, updatePacket.elements);
   }
 
   // Now inspect the buffer to make sure that the correct packet has been updated.
   CHECK(checkPacketInSlot(&buffer, updatePacket, 1));
   free(updatePacket.data);
+}
+
+TEST_CASE("libjitter_implementation::update_existing_partial_read") {
+
+  // Push 1 and 3 to generate 2, then update 2.
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+
+  // Push 1.
+  Packet packet;
+  {
+    packet = makeTestPacket(1, frame_size, frames_per_packet);
+    std::vector<Packet> packets = std::vector<Packet>();
+    packets.push_back(packet);
+    const std::size_t enqueued = buffer->Enqueue(
+            packets,
+            [](const std::vector<Packet> &) {
+              FAIL("Unexpected concealment");
+            });
+    CHECK_EQ(enqueued, packet.elements);
+  }
+
+  // Push 3.
+  Packet packet3;
+  {
+    packet3 = makeTestPacket(3, frame_size, frames_per_packet);
+    std::vector<Packet> packets3 = std::vector<Packet>();
+    packets3.push_back(packet3);
+    std::size_t concealment_enqueue = 0;
+    const std::size_t enqueued3 = buffer->Enqueue(
+            packets3,
+            [&concealment_enqueue](std::vector<Packet> &packets) {
+              CHECK_EQ(packets.capacity(), 1);
+              CHECK_EQ(packets[0].sequence_number, 2);
+              memset(packets[0].data, 2, packets[0].length);
+              concealment_enqueue += packets[0].length / frame_size;
+            });
+    CHECK_EQ(enqueued3, packet3.elements + concealment_enqueue);
+  }
+
+  const int updated_data = 4;
+  {
+    // Partially read concealment packet 1+2, it should be packet 1 + 1/2 concealed 2.
+    const std::size_t to_dequeue = frames_per_packet * 1.5f;
+    std::uint8_t* dest = reinterpret_cast<std::uint8_t*>(malloc(to_dequeue * frame_size));
+    const std::size_t dequeued = buffer->Dequeue(dest, to_dequeue * frame_size, to_dequeue);
+    CHECK_EQ(to_dequeue, dequeued);
+    // Packet 1. 
+    CHECK_EQ(0, memcmp(dest, packet.data, frame_size * packet.elements));
+    free(packet.data);
+    // Half of concealed packet 2.
+    void* expectedPacket2 = malloc(frame_size * packet.elements);
+    memset(expectedPacket2, 2, frame_size * packet.elements);
+    CHECK_EQ(0, memcmp(dest + (frame_size * packet.elements), expectedPacket2, frame_size * packet.elements / 2));
+    free(dest);
+    free(expectedPacket2);
+
+    // Now update 2.
+    Packet updatePacket = makeTestPacket(2, frame_size, frames_per_packet, updated_data);
+    std::vector<Packet> updatePackets = std::vector<Packet>();
+    updatePackets.push_back(updatePacket);
+    const std::size_t enqueued = buffer->Enqueue(
+            updatePackets,
+            [](const std::vector<Packet> &) {
+              FAIL("Unexpected concealment");
+            });
+    CHECK_EQ(enqueued, updatePacket.elements - (dequeued - frames_per_packet));
+    free(updatePacket.data);
+  }
+
+  // Dequeueing the remaining 1/2 of 2 should be the real data, not the fake data.
+  {
+    std::uint8_t* dest = reinterpret_cast<std::uint8_t*>(malloc(frame_size * frames_per_packet / 2));
+    void* seq = malloc(frame_size * frames_per_packet / 2);
+    memset(seq, updated_data, frame_size * frames_per_packet / 2);
+    const std::size_t dequeued = buffer->Dequeue(dest, frame_size * frames_per_packet / 2, frames_per_packet / 2);
+    CHECK_EQ(frames_per_packet / 2, dequeued);
+    CHECK_EQ(0, memcmp(dest, seq, frame_size * frames_per_packet / 2));
+    free(dest);
+    free(seq);
+  }
+
+  // Packet 3 should be all that's left.
+  {
+    std::uint8_t* dest = reinterpret_cast<std::uint8_t*>(malloc(frame_size * frames_per_packet));
+    void* seq = malloc(frame_size * frames_per_packet);
+    memset(seq, 3, frame_size * frames_per_packet);
+    std::size_t dequeued = buffer->Dequeue(dest, frame_size * frames_per_packet, frames_per_packet);
+    CHECK_EQ(frames_per_packet, dequeued);
+    CHECK_EQ(0, memcmp(dest, seq, frame_size * frames_per_packet));
+    dequeued = buffer->Dequeue(dest, frame_size * frames_per_packet, frames_per_packet);
+    CHECK_EQ(0, dequeued);
+    free(dest);
+    free(seq);
+    free(packet3.data);
+  }
 }
 
 TEST_CASE("libjitter_implementation::checkPacketInSlot") {
@@ -156,13 +253,12 @@ TEST_CASE("libjitter_implementation::checkPacketInSlot") {
           });
   CHECK_EQ(enqueued, packet.elements);
 
-  Header retrieved{};
   const std::uint8_t* read = buffer.GetReadPointerAtPacketOffset(0);
-  memcpy(&retrieved, read - JitterBuffer::METADATA_SIZE, JitterBuffer::METADATA_SIZE);
+  const Header* retrieved = reinterpret_cast<const Header*>(read - JitterBuffer::METADATA_SIZE);
 
   // Make sure the header looks good, and the data has been updated.
-  CHECK_EQ(retrieved.sequence_number, packet.sequence_number);
-  CHECK_EQ(retrieved.elements, packet.elements);
+  CHECK_EQ(retrieved->sequence_number, packet.sequence_number);
+  CHECK_EQ(retrieved->elements, packet.elements);
   CHECK_EQ(0, memcmp(read, packet.data, packet.length));
   free(packet.data);
 }

@@ -281,6 +281,66 @@ TEST_CASE("libjitter::update_existing") {
   }
 }
 
+TEST_CASE("libjitter::update_existing_partial_read") {
+
+  // Push 1 and 3 to generate 2, then update 2.
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+
+  // Push 1.
+  {
+    Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
+    std::vector<Packet> packets = std::vector<Packet>();
+    packets.push_back(packet);
+    const std::size_t enqueued = buffer->Enqueue(
+            packets,
+            [](const std::vector<Packet> &) {
+              FAIL("Unexpected concealment");
+            });
+    CHECK_EQ(enqueued, packet.elements);
+    free(packet.data);
+  }
+
+  // Push 3.
+  {
+    Packet packet3 = makeTestPacket(3, frame_size, frames_per_packet);
+    std::vector<Packet> packets3 = std::vector<Packet>();
+    packets3.push_back(packet3);
+    std::size_t concealment_enqueue = 0;
+    const std::size_t enqueued3 = buffer->Enqueue(
+            packets3,
+            [&concealment_enqueue](std::vector<Packet> &packets) {
+              CHECK_EQ(packets.capacity(), 1);
+              CHECK_EQ(packets[0].sequence_number, 2);
+              concealment_enqueue += packets[0].length / frame_size;
+            });
+    CHECK_EQ(enqueued3, packet3.elements + concealment_enqueue);
+    free(packet3.data);
+  }
+
+  // Partially read concealment packet 2.
+  const std::size_t to_dequeue = frames_per_packet * 1.5f;
+  std::uint8_t* dest = reinterpret_cast<std::uint8_t*>(malloc(to_dequeue * frame_size));
+  const std::size_t dequeued = buffer->Dequeue(dest, to_dequeue * frame_size, to_dequeue);
+  CHECK_EQ(to_dequeue, dequeued);
+  free(dest);
+
+  // Now update 2.
+  {
+    Packet updatePacket = makeTestPacket(2, frame_size, frames_per_packet);
+    std::vector<Packet> updatePackets = std::vector<Packet>();
+    updatePackets.push_back(updatePacket);
+    const std::size_t enqueued = buffer->Enqueue(
+            updatePackets,
+            [](const std::vector<Packet> &) {
+              FAIL("Unexpected concealment");
+            });
+    CHECK_EQ(enqueued, updatePacket.elements - (dequeued - frames_per_packet));
+    free(updatePacket.data);
+  }
+}
+
 TEST_CASE("libjitter::fill_buffer") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
@@ -353,6 +413,55 @@ TEST_CASE("libjitter::packet_less_than_1ms") {
   CHECK_THROWS_WITH_AS(JitterBuffer(2, 10, 48000, milliseconds(100), milliseconds(0)),
                        "Packets should be at least 1ms.",
                        const std::invalid_argument&);
+}
+
+TEST_CASE("libjitter::update_expired")
+{
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 100000, milliseconds(100), milliseconds(0));
+  // Write 1.
+  Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
+  std::vector<Packet> packets = std::vector<Packet>();
+  packets.push_back(packet);
+  std::size_t enqueued = buffer.Enqueue(
+    packets,
+    [](const std::vector<Packet> &) {
+      FAIL("Unexpected concealment");
+    });
+  CHECK_EQ(enqueued, packet.elements);
+  free(packet.data);
+
+  // Write 3.
+  Packet packet3 = makeTestPacket(3, frame_size, frames_per_packet);
+  std::vector<Packet> packets_3 = std::vector<Packet>();
+  packets_3.push_back(packet3);
+  enqueued = buffer.Enqueue(
+    packets_3,
+    [frames_per_packet](std::vector<Packet> &packets) {
+      CHECK_EQ(1, packets.size());
+      Packet& packet = packets.at(0);
+      CHECK_EQ(2, packet.sequence_number);
+      CHECK_EQ(frames_per_packet, packet.elements);
+    });
+  CHECK_EQ(enqueued, packet3.elements * 2);
+  free(packet3.data);
+
+  // Read 1 + 2.
+  auto* dest = reinterpret_cast<std::uint8_t*>(malloc(frames_per_packet * frame_size * 2));
+  const std::size_t dequeued = buffer.Dequeue(dest, frames_per_packet * frame_size * 2, frames_per_packet * 2);
+  CHECK_EQ(dequeued, frames_per_packet * 2);
+
+  // Update 2.
+  Packet update = makeTestPacket(2, frame_size, frames_per_packet);
+  std::vector<Packet> update_packets = std::vector<Packet>();
+  update_packets.push_back(update);
+  const std::size_t updated = buffer.Enqueue(
+          update_packets,
+          [](const std::vector<Packet> &) {
+            FAIL("Unexpected concealment");
+          });
+  CHECK_EQ(0, updated);
 }
 
 // TODO: Test for only dequeing some of packet, then dequeueing the rest.

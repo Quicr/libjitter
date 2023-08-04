@@ -127,9 +127,30 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     assert(copied == METADATA_SIZE);
     assert(header.elements > 0);
 
-    // Check the age of this packet.
+    // If this is concealement, check the use flag.
+    if (header.concealment && header.in_use.test_and_set(std::memory_order::acquire)) {
+      // This packet is currently being updated from concealment data to real data.
+      // It's not safe for us to read it - skip to the next available packet.
+      std::cerr << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::endl;
+      ForwardRead(header.elements * element_size);
+      continue;
+    }
+
+    // Is this packet of data old enough?
     const std::uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::uint64_t age = now_ms - header.timestamp;
+    if (age < static_cast<std::uint64_t>(min_length.count())) {
+      // Not old enough. Stop here and rewind pointer back to header for the next read.
+      UnwindRead(METADATA_SIZE);
+      assert(dequeued_bytes % element_size == 0);
+      const std::size_t dequeued_elements = dequeued_bytes / element_size;
+      written_elements -= dequeued_elements;
+      if (header.concealment) {
+       header.in_use.clear(std::memory_order::release);
+      }
+      return dequeued_elements;
+    }
+
     if (age >= static_cast<std::uint64_t>(max_length.count())) {
       // It's too old, throw this away and run to the next.
       assert(header.elements <= packet_elements);
@@ -148,6 +169,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     assert(bytes_dequeued % element_size == 0); // We should only get whole elements out.
     destination_offset += bytes_dequeued;
     [[maybe_unused]] const std::size_t originally_available = header.elements;
+    bool clear_header = true;
     if (bytes_dequeued < available_bytes) {
       // We didn't fully empty a packet, update the header to reflect what's left.
       UnwindRead(METADATA_SIZE);
@@ -155,10 +177,31 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       assert(remaining_bytes % element_size == 0); // We should only get whole elements.
       header.elements = remaining_bytes / element_size;
       assert(header.elements > 0);
+      if (header.concealment) {
+        clear_header = false;
+        header.in_use.clear(std::memory_order::release);
+      }
       memcpy(buffer + read_offset, &header, METADATA_SIZE);
+
+      // We need to update the next header's previous elements too.
+      if (written >= (METADATA_SIZE * 2) + header.elements * element_size) {
+        std::size_t next_header_offset = (read_offset + METADATA_SIZE + header.elements * element_size) % max_size_bytes;
+        Header* next_header = reinterpret_cast<Header*>(buffer + next_header_offset);
+        if (next_header->in_use.test_and_set(std::memory_order::acquire)) {
+          // We couldn't get the lock. This is bad.
+          std::cerr << "This is bad" << std::endl;
+          assert(false);
+        }
+        assert(next_header->sequence_number == header.sequence_number + 1);
+        next_header->previous_elements = header.elements;
+        next_header->in_use.clear(std::memory_order::release);
+        memcpy(buffer + next_header_offset, next_header, METADATA_SIZE);
+      }
     }
 
-    // Otherwise, we read a whole packet and have space for more.
+    if (header.concealment && clear_header) {
+      header.in_use.clear(std::memory_order::release);
+    }
     [[maybe_unused]] const std::size_t dequeued_elements = bytes_dequeued / element_size;
     assert(dequeued_elements <= originally_available); // We should not get more than available.
     dequeued_bytes += bytes_dequeued;
@@ -181,14 +224,18 @@ std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const C
     std::cout << "Couldn't fit all missing. Asking for: " << to_conceal << "/" << packets << std::endl;
   }
   std::vector<Packet> concealment_packets = std::vector<Packet>(to_conceal);
+  std::size_t previous = latest_written_elements;
   for (std::size_t sequence_offset = 0; sequence_offset < to_conceal; sequence_offset++) {
     // We need to write the header for this packet.
     const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     Header header = {
       .sequence_number = static_cast<uint32_t>(last + sequence_offset + 1),
       .elements = packet_elements,
-      .timestamp = static_cast<uint64_t>(now_ms)
+      .timestamp = static_cast<uint64_t>(now_ms),
+      .concealment = true,
+      .previous_elements = previous,
     };
+    previous = header.elements;
     CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, true, 0);
     write_offset = (write_offset + METADATA_SIZE) % max_size_bytes;
     const std::size_t length = header.elements * element_size;
@@ -206,24 +253,56 @@ std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const C
   written += to_conceal * ((packet_elements * element_size) + METADATA_SIZE);
   written_elements += to_conceal * packet_elements;
   last_written_sequence_number = last + to_conceal;
+  latest_written_elements = previous;
   return packet_elements * to_conceal;
 }
 
 std::size_t JitterBuffer::Update(const Packet &packet) {
-  const std::size_t offset_packets = 1 + (last_written_sequence_number.value() - packet.sequence_number);
-  const std::size_t offset_bytes = offset_packets * ((element_size * packet_elements) + METADATA_SIZE);
-  const std::size_t offset_write_offset = (write_offset - offset_bytes) % max_size_bytes;
-  Header header{};
-  memcpy(&header, buffer + offset_write_offset, METADATA_SIZE);
-  if (packet.sequence_number != header.sequence_number) {
-    // TODO: What do we do here.
-    std::cerr << "Our update estimation seemed wrong. Expected: " << packet.sequence_number << " but got: " << header.sequence_number << std::endl;
+  // Get a snapshot of the current state.
+  std::size_t local_write_offset = write_offset;
+  std::size_t written_at_start = written;
+
+  // Get the first header by moving back elements + metadata.
+  const std::size_t this_chunk = latest_written_elements * element_size + METADATA_SIZE;
+  assert(written_at_start >= this_chunk);
+  written_at_start -= this_chunk;
+  local_write_offset = ((local_write_offset - this_chunk) + this_chunk * max_size_bytes) % max_size_bytes;
+  Header* header;
+  while(true) {
+    // Parse the header that should be located here.
+    header = reinterpret_cast<Header*>(buffer + local_write_offset);
+    if (header->sequence_number == packet.sequence_number) break;
+    if (header->in_use.test_and_set(std::memory_order::acquire)) {
+      std::cout << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::endl;
+      return 0;
+    }
+    assert(header->previous_elements > 0);
+    std::size_t to_move = (header->previous_elements * element_size) + METADATA_SIZE;
+    if (to_move > written_at_start) {
+      // Couldn't find it, probably already read.
+      std::cout << "[" << packet.sequence_number << "] Couldn't find target packet." << std::endl;
+      header->in_use.clear(std::memory_order::release);
+      return 0;
+    }
+    local_write_offset = ((local_write_offset - to_move) + to_move * max_size_bytes) % max_size_bytes;
+    written_at_start -= to_move;
+    header->in_use.clear(std::memory_order::release);
+  }
+
+  // We found the target packet.
+  assert(header->concealment);
+  if (header->in_use.test_and_set(std::memory_order::acquire)) {
+    // It's being read, we can't update it.
+    std::cout << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::endl;
     return 0;
   }
 
-  // TODO: Assuming we're at the right place here for now.
-  memcpy(buffer + offset_write_offset + METADATA_SIZE, packet.data, header.elements * element_size);
-  return header.elements;
+  // Copy in the updated data.
+  const std::size_t source_offset_frames = packet.elements - header->elements;
+  memcpy(buffer + ((local_write_offset + METADATA_SIZE) % max_size_bytes), reinterpret_cast<std::uint8_t*>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
+  header->concealment = false;
+  header->in_use.clear(std::memory_order::release);
+  return header->elements;
 }
 
 std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
@@ -247,6 +326,8 @@ std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
   assert(enqueued_element_bytes % element_size == 0); // We should write whole elements.
   header.elements = enqueued_element_bytes / element_size;
   assert(header.elements > 0);
+  header.previous_elements = latest_written_elements;
+  latest_written_elements = header.elements;
   memcpy(buffer + header_offset, &header, METADATA_SIZE);
   ForwardWrite(enqueued_element_bytes + METADATA_SIZE);
   assert(written <= max_size_bytes);
