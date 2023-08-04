@@ -36,9 +36,6 @@ static void libjitter_enqueue(benchmark::State &state) {
             packets,
             [](const std::vector<Packet> &) {
               assert(false);
-            },
-            [](const std::vector<Packet> &) {
-              assert(false);
             });
     if (enqueued == 0) {
       state.SkipWithMessage("Full");
@@ -63,9 +60,6 @@ static void libjitter_concealment(benchmark::State &state) {
             packets,
             [](const std::vector<Packet> &) {
               assert(false);
-            },
-            [](const std::vector<Packet> &) {
-              assert(false);
             });
     if (enqueued == 0) {
       state.SkipWithMessage("Full");
@@ -83,12 +77,7 @@ static void libjitter_concealment(benchmark::State &state) {
             nexts,
             [](std::vector<Packet> &packets) {
               for (Packet &packet: packets) {
-                packet.data = malloc(packet.length);
-              }
-            },
-            [](std::vector<Packet> &packets) {
-              for (Packet &packet: packets) {
-                free(packet.data);
+                memset(packet.data, 0, packet.length);
               }
             });
     if (concealed == 0) {
@@ -114,9 +103,6 @@ static void libjitter_concealment_update(benchmark::State &state) {
             packets,
             [](const std::vector<Packet> &) {
               assert(false);
-            },
-            [](const std::vector<Packet> &) {
-              assert(false);
             });
     if (enqueued == 0) {
       state.SkipWithMessage("Full");
@@ -134,12 +120,7 @@ static void libjitter_concealment_update(benchmark::State &state) {
             nexts,
             [](std::vector<Packet> &packets) {
               for (Packet &packet: packets) {
-                packet.data = malloc(packet.length);
-              }
-            },
-            [](std::vector<Packet> &packets) {
-              for (Packet &packet: packets) {
-                free(packet.data);
+                memset(packet.data, 0, packet.length);
               }
             });
     if (concealed == 0) {
@@ -158,9 +139,6 @@ static void libjitter_concealment_update(benchmark::State &state) {
         updates.push_back(next);
         const std::size_t updated = buffer->Enqueue(
             updates,
-            [](std::vector<Packet> &packets) {
-              assert(false);
-            },
             [](std::vector<Packet> &packets) {
               assert(false);
             });

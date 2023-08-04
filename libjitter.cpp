@@ -19,7 +19,6 @@ size_t JitterEnqueue(void *libjitter,
                      const Packet packets[],
                      const size_t elements,
                      const LibJitterConcealmentCallback concealment_callback,
-                     const LibJitterConcealmentCallback free_callback,
                      void* user_data) {
   auto *buffer = static_cast<JitterBuffer *>(libjitter);
 
@@ -27,15 +26,9 @@ size_t JitterEnqueue(void *libjitter,
     concealment_callback(&packets[0], packets.capacity(), user_data);
   };
 
-  JitterBuffer::ConcealmentCallback intermediate_free = [free_callback, user_data](std::vector<Packet> &packets) {
-    free_callback(&packets[0], packets.capacity(), user_data);
-  };
-
   const std::vector<Packet> vector(packets, packets + elements);
   try {
-    return buffer->Enqueue(vector,
-                           callback,
-                           intermediate_free);
+    return buffer->Enqueue(vector, callback);
   } catch (const std::exception& ex) {
     std::cerr << ex.what() << std::endl;
     return 0;

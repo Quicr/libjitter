@@ -53,7 +53,7 @@ class JitterBuffer {
      * @param free_callback Fired when the concealment packets have been finished with.
      * @return std::size_t The number of elements actually enqueued, including concealment.
      */
-  std::size_t Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback, const ConcealmentCallback &free_callback);
+  std::size_t Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback);
 
   /**
      * @brief Dequeue a number of packets into the given destination. This must be called from a single reader thread.
@@ -100,7 +100,7 @@ class JitterBuffer {
   std::size_t latest_written_elements;
 
   std::size_t Update(const Packet &packet);
-  std::size_t CopyIntoBuffer(const Packet &packet, bool concealment);
+  std::size_t CopyIntoBuffer(const Packet &packet);
   std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length, bool manual_increment, std::size_t offset_offset_bytes);
   std::size_t CopyOutOfBuffer(std::uint8_t *destination, std::size_t length, std::size_t required_bytes, bool strict);
   void UnwindRead(std::size_t unwind_bytes);
