@@ -58,7 +58,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
 
   for (const Packet &packet: packets) {
     // TODO: Handle sequence rollover.
-    if (packet.sequence_number < last_written_sequence_number) {
+    if (packet.sequence_number <= last_written_sequence_number) {
       // This might be an update for an existing concealment packet.
       // Update it and continue on.
       enqueued += Update(packet);
