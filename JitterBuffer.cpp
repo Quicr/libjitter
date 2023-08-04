@@ -69,6 +69,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
          std::cout << "Couldn't fit all missing. Asking for: " << to_conceal << "/" << missing << std::endl;
        }
        std::vector<Packet> concealment_packets = std::vector<Packet>(to_conceal);
+       std::size_t previous = latest_written_elements;
        for (std::size_t sequence_offset = 0; sequence_offset < to_conceal; sequence_offset++) {
          // We need to write the header for this packet.
          const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -76,8 +77,10 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
            .sequence_number = static_cast<uint32_t>(last + sequence_offset + 1),
            .elements = packet_elements,
            .timestamp = static_cast<uint64_t>(now_ms),
-           .concealment = true
+           .concealment = true,
+           .previous_elements = previous
          };
+         previous = header.elements;
          CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, true, 0);
          write_offset = (write_offset + METADATA_SIZE) % max_size_bytes;
          const std::size_t length = header.elements * element_size;
