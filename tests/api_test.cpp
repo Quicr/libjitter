@@ -37,14 +37,12 @@ TEST_CASE("libjitter:::min_fill") {
   packets.push_back(packet);
   const std::size_t enqueued = buffer.Enqueue(
           packets,
-          [frames_per_packet](const std::vector<Packet> &packets) {
-            CHECK_EQ(packets.size(), 1);
-            CHECK_EQ(packets[0].sequence_number, 2);
-            CHECK_EQ(packets[0].elements, frames_per_packet);
-            CHECK_EQ(packets[0].length, packets[0].elements * frame_size);
+          [](const std::vector<Packet> &) {
+            FAIL("Unexpected concealment");
           });
-  CHECK_EQ(enqueued, packet.elements * 2);
+  CHECK_EQ(enqueued, packet.elements);
   free(packet.data);
+  CHECK_EQ(0, buffer.Dequeue(nullptr, 0, 0));
 }
 
 TEST_CASE("libjitter::dequeue_empty") {
@@ -387,7 +385,8 @@ TEST_CASE("libjitter::too_old") {
 
 TEST_CASE("libjitter::buffer_too_small")
 {
-  auto buffer = JitterBuffer(2, 480, 100000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(2, 480, 100000, milliseconds(0), milliseconds(0));
+  buffer.Enqueue(std::vector<Packet>{makeTestPacket(1, 2, 480)}, [](const std::vector<Packet>&){});
   void* dest = malloc(1);
   CHECK_THROWS_WITH_AS(buffer.Dequeue(reinterpret_cast<std::uint8_t*>(dest), 1, 480), "Provided buffer too small. Was: 1, need: 960" ,const std::invalid_argument&);
   free(dest);

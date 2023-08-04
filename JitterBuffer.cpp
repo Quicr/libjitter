@@ -280,10 +280,12 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
       std::cout << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::endl;
       return 0;
     }
+
     if (header->sequence_number <= dont_walk_beyond) {
       std::cout << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Unwalkable." << std::endl;
       return 0;
     }
+
     assert(header->previous_elements > 0);
     std::size_t to_move = (header->previous_elements * element_size) + METADATA_SIZE;
     if (to_move > written_at_start) {
