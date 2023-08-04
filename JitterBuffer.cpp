@@ -212,7 +212,6 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
         assert(next_header->sequence_number == header.sequence_number + 1);
         next_header->previous_elements = header.elements;
         next_header->in_use.clear(std::memory_order::release);
-        memcpy(buffer + next_header_offset, next_header, METADATA_SIZE);
       }
     }
 
