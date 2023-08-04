@@ -12,12 +12,14 @@ struct Header {
    std::uint32_t sequence_number;
    std::size_t elements;
    std::uint64_t timestamp;
+   bool concealment;
+   std::atomic_flag in_use = ATOMIC_FLAG_INIT;
+   std::size_t previous_elements;
 };
 
 class JitterBuffer {
   public:
       const static std::size_t METADATA_SIZE = sizeof(Header);
-
 
   /**
      * @brief Provides concealment data.
@@ -95,10 +97,11 @@ class JitterBuffer {
   std::atomic<std::size_t> written_elements;
   std::optional<unsigned long> last_written_sequence_number;
   void* vm_user_data;
+  std::size_t latest_written_elements;
 
   std::size_t GenerateConcealment(std::size_t packets, const ConcealmentCallback &callback);
   std::size_t Update(const Packet &packet);
-  std::size_t CopyIntoBuffer(const Packet &packet);
+  std::size_t CopyIntoBuffer(const Packet &packet, bool concealment);
   std::size_t CopyIntoBuffer(const std::uint8_t *source,  std::size_t length, bool manual_increment, std::size_t offset_offset_bytes);
   std::size_t CopyOutOfBuffer(std::uint8_t *destination, std::size_t length, std::size_t required_bytes, bool strict);
   void UnwindRead(std::size_t unwind_bytes);
