@@ -102,7 +102,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
   }
 
   // If we're waiting to play, is it time to play?
-  if (!play && GetCurrentDepth() >= min_length) {
+  if (!play && GetCurrentDepth() >= min_length * 1.5) {
       play = true;
   }
 
