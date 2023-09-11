@@ -8,16 +8,18 @@
 
 using namespace std::chrono;
 
+static auto logger = std::make_shared<cantina::Logger>("", "");
+
 TEST_CASE("libjitter::construct") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
 }
 
 TEST_CASE("libjitter::enqueue") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
   Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
   std::vector<Packet> packets = std::vector<Packet>();
   packets.push_back(packet);
@@ -31,7 +33,7 @@ TEST_CASE("libjitter::enqueue") {
 TEST_CASE("libjitter:::min_fill") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(20));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(20), logger);
   Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
   std::vector<Packet> packets = std::vector<Packet>();
   packets.push_back(packet);
@@ -48,7 +50,7 @@ TEST_CASE("libjitter:::min_fill") {
 TEST_CASE("libjitter::dequeue_empty") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
   void* destination = calloc(frames_per_packet * frame_size, 1);
   const std::size_t dequeued = buffer->Dequeue(static_cast<std::uint8_t*>(destination), frames_per_packet * frame_size, 480);
   CHECK_EQ(dequeued, 0);
@@ -59,7 +61,7 @@ TEST_CASE("libjitter::enqueue_dequeue")
 {
   const std::size_t frame_size = 2*2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
 
   // Enqueue some data.
   Packet packet = Packet();
@@ -89,7 +91,7 @@ TEST_CASE("libjitter::enqueue_dequeue")
 TEST_CASE("libjitter::partial_read") {
   const std::size_t frame_size = 2*2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
 
   // Enqueue some data.
   Packet packet = Packet();
@@ -120,7 +122,7 @@ TEST_CASE("libjitter::partial_read") {
 TEST_CASE("libjitter::runover_read") {
   const std::size_t frame_size = 2*2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
 
   // Enqueue some data.
   std::size_t total_frames = 0;
@@ -175,7 +177,7 @@ TEST_CASE("libjitter::runover_read") {
 TEST_CASE("libjitter::concealment") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
 
   // Enqueue sequence 1.
   Packet sequence1 = makeTestPacket(2, frame_size, frames_per_packet);
@@ -213,7 +215,7 @@ TEST_CASE("libjitter::concealment") {
 TEST_CASE("libjitter::current_depth") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
   Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
   std::vector<Packet> packets = std::vector<Packet>();
   packets.push_back(packet);
@@ -230,7 +232,7 @@ TEST_CASE("libjitter::update_existing") {
   // Push 1 and 3 to generate 2, then update 2.
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
 
   // Push 1.
   {
@@ -284,7 +286,7 @@ TEST_CASE("libjitter::update_existing_partial_read") {
   // Push 1 and 3 to generate 2, then update 2.
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
 
   // Push 1.
   {
@@ -342,7 +344,7 @@ TEST_CASE("libjitter::update_existing_partial_read") {
 TEST_CASE("libjitter::fill_buffer") {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0));
+  auto buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
   bool enqueued = true;
   std::uint32_t sequence_number = 0;
   while (enqueued) {
@@ -357,7 +359,7 @@ TEST_CASE("libjitter::fill_buffer") {
 TEST_CASE("libjitter::too_old") {
   const auto max_age = milliseconds(100);
   const std::size_t frames_per_packet = 480;
-  auto buffer = JitterBuffer(sizeof(std::size_t), frames_per_packet, 48000, max_age, milliseconds(0));
+  auto buffer = JitterBuffer(sizeof(std::size_t), frames_per_packet, 48000, max_age, milliseconds(0), logger);
 
   Packet old_packet = makeTestPacket(1, sizeof(std::size_t), frames_per_packet);
   std::vector<Packet> old_packets;
@@ -385,7 +387,7 @@ TEST_CASE("libjitter::too_old") {
 
 TEST_CASE("libjitter::buffer_too_small")
 {
-  auto buffer = JitterBuffer(2, 480, 100000, milliseconds(0), milliseconds(0));
+  auto buffer = JitterBuffer(2, 480, 100000, milliseconds(0), milliseconds(0), logger);
   buffer.Enqueue(std::vector<Packet>{makeTestPacket(1, 2, 480)}, [](const std::vector<Packet>&){});
   void* dest = malloc(1);
   CHECK_THROWS_WITH_AS(buffer.Dequeue(reinterpret_cast<std::uint8_t*>(dest), 1, 480), "Provided buffer too small. Was: 1, need: 960" ,const std::invalid_argument&);
@@ -394,7 +396,7 @@ TEST_CASE("libjitter::buffer_too_small")
 
 TEST_CASE("libjitter::element_mismatch")
 {
-  auto buffer = JitterBuffer(2, 480, 96000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(2, 480, 96000, milliseconds(100), milliseconds(0), logger);
   auto packet = Packet {
     .sequence_number = 1,
     .data = nullptr,
@@ -409,7 +411,7 @@ TEST_CASE("libjitter::element_mismatch")
 }
 
 TEST_CASE("libjitter::packet_less_than_1ms") {
-  CHECK_THROWS_WITH_AS(JitterBuffer(2, 10, 48000, milliseconds(100), milliseconds(0)),
+  CHECK_THROWS_WITH_AS(JitterBuffer(2, 10, 48000, milliseconds(100), milliseconds(0), logger),
                        "Packets should be at least 1ms.",
                        const std::invalid_argument&);
 }
@@ -418,7 +420,7 @@ TEST_CASE("libjitter::update_expired")
 {
   const std::size_t frame_size = 2 * 2;
   const std::size_t frames_per_packet = 480;
-  auto buffer = JitterBuffer(frame_size, frames_per_packet, 100000, milliseconds(100), milliseconds(0));
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 100000, milliseconds(100), milliseconds(0), logger);
   // Write 1.
   Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
   std::vector<Packet> packets = std::vector<Packet>();

@@ -2,6 +2,9 @@
 #define LIBJITTER_LIBJITTER_H
 
 #include "Packet.h"
+
+#include <cantina/logger.h>
+
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -17,8 +20,9 @@ typedef void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_p
    * @param clock_rate Clock rate of elements contained in Hz. E.g 48kHz audio is 48000.
    * @param max_length The maximum length of the buffer in milliseconds.
    * @param mix_length The minimum age of packets in milliseconds before eligible for dequeue.
+   * @param logger Pointer to external parent logger.
    */
-void *JitterInit(size_t element_size, size_t packet_elements, unsigned long clock_rate, unsigned long max_length_ms, unsigned long min_length_ms);
+void *JitterInit(size_t element_size, size_t packet_elements, unsigned long clock_rate, unsigned long max_length_ms, unsigned long min_length_ms, cantina::Logger* logger);
 
 /// @brief Enqueue packets of data.
 /// @param libjitter

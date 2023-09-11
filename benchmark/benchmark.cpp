@@ -13,7 +13,7 @@ static void DoSetup(const benchmark::State &state) {
   const std::size_t sample_rate = 48000;
   const std::chrono::milliseconds max_time = std::chrono::milliseconds(10000);
   const std::chrono::milliseconds min_time = std::chrono::milliseconds(0);
-  buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, sample_rate, max_time, min_time);
+  buffer = std::make_unique<JitterBuffer>(frame_size, frames_per_packet, sample_rate, max_time, min_time, std::make_shared<cantina::Logger>("", ""));
   data = malloc(frame_size * frames_per_packet);
 }
 

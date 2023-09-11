@@ -7,12 +7,14 @@ void *JitterInit(const size_t element_size,
                  const size_t packet_elements,
                  const unsigned long clock_rate,
                  const unsigned long max_length_ms,
-                 const unsigned long min_length_ms) {
+                 const unsigned long min_length_ms,
+                 cantina::Logger* logger) {
   return new JitterBuffer(element_size,
                           packet_elements,
                           std::uint32_t(clock_rate),
                           std::chrono::milliseconds(max_length_ms),
-                          std::chrono::milliseconds(min_length_ms));
+                          std::chrono::milliseconds(min_length_ms),
+                          cantina::LoggerPointer(logger));
 }
 
 size_t JitterEnqueue(void *libjitter,

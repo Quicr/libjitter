@@ -1,4 +1,5 @@
 #include "JitterBuffer.hh"
+
 #include <algorithm>
 #include <iostream>
 #include <cassert>
@@ -14,8 +15,14 @@
 
 using namespace std::chrono;
 
-JitterBuffer::JitterBuffer(const std::size_t element_size, const std::size_t packet_elements, const std::uint32_t clock_rate, const milliseconds max_length, const milliseconds min_length)
-    : element_size(element_size),
+JitterBuffer::JitterBuffer(const std::size_t element_size,
+                           const std::size_t packet_elements,
+                           const std::uint32_t clock_rate,
+                           const milliseconds max_length,
+                           const milliseconds min_length,
+                           const cantina::LoggerPointer& logger)
+    : logger(std::make_shared<cantina::Logger>("JTTR", logger)),
+      element_size(element_size),
       packet_elements(packet_elements),
       clock_rate(clock_rate),
       min_length(min_length),
@@ -46,7 +53,7 @@ JitterBuffer::JitterBuffer(const std::size_t element_size, const std::size_t pac
   // Done.
   memset(buffer, 0, max_size_bytes);
   last_written_sequence_number.reset();
-  std::cout << "Allocated JitterBuffer with: " << max_size_bytes << " bytes" << std::endl;
+  logger->debug << "Allocated JitterBuffer with: " << max_size_bytes << " bytes" << std::flush;
 }
 
 JitterBuffer::~JitterBuffer() {
@@ -67,7 +74,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
      const std::size_t last = last_written_sequence_number.value();
      const std::size_t missing = packet.sequence_number - last - 1;
      if (missing > 0) {
-       std::cout << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::endl;
+       logger->warning << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::flush;
        enqueued += GenerateConcealment(missing, concealment_callback);
      }
    }
@@ -81,7 +88,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
     const std::size_t enqueued_elements = CopyIntoBuffer(packet);
     if (enqueued_elements == 0 && packet.elements > 0) {
       // There's no more space.
-      std::cout << "Enqueue has no more space. This packet will be lost " << packet.sequence_number << std::endl;
+      logger->warning << "Enqueue has no more space. This packet will be lost " << packet.sequence_number << std::flush;
       break;
     }
     enqueued += enqueued_elements;
@@ -97,7 +104,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
     const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate.count());
     assert(each_packet.count() > 0);
     const std::size_t to_conceal = std::ceil((float)gap_to_min.count() / (float)each_packet.count());
-    std::cout << "Below min fill level. Target: " << min_length.count() << "ms Actual: " << current.count() << "ms Need: " << to_conceal << std::endl;
+    logger->warning << "Below min fill level. Target: " << min_length.count() << "ms Actual: " << current.count() << "ms Need: " << to_conceal << std::flush;
     enqueued += GenerateConcealment(to_conceal, concealment_callback);
   }
 
@@ -118,11 +125,11 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
   // Check the destination buffer is big enough.
   const std::size_t required_bytes = elements * element_size;
   if (destination_length < required_bytes) {
-    std::stringstream message;
+    std::ostringstream message;
     message << "Provided buffer too small. Was: " << destination_length << ", need: " << required_bytes;
     throw std::invalid_argument(message.str());
   }
-  
+
   std::size_t dequeued_bytes = 0;
   std::size_t destination_offset = 0;
   while (dequeued_bytes < required_bytes) {
@@ -141,7 +148,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     if (header.concealment && header.in_use.test_and_set(std::memory_order::acquire)) {
       // This packet is currently being updated from concealment data to real data.
       // It's not safe for us to read it - skip to the next available packet.
-      std::cerr << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::endl;
+      logger->error << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::flush;
       ForwardRead(header.elements * element_size);
       continue;
     }
@@ -150,7 +157,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::uint64_t age = now_ms - header.timestamp;
     if (age >= static_cast<std::uint64_t>(max_length.count())) {
       // It's too old, throw this away and run to the next.
-      std::cout << "Too old: " << age << "/" << max_length.count() << std::endl;
+      logger->info << "Too old: " << age << "/" << max_length.count() << std::flush;
       assert(header.elements <= packet_elements);
       ForwardRead(header.elements * element_size);
       continue;
@@ -188,7 +195,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
         assert(next_header->sequence_number == header.sequence_number + 1);
         if (next_header->in_use.test_and_set(std::memory_order::acquire)) {
           // We can't alter this packet so we'll have to signal the walk to stop here in the future.
-          std::cout << "[" << header.sequence_number << "] [" << next_header->sequence_number << "] Dequeue: Can't update next header because it's being updated. Walks will stop here." << std::endl;
+          logger->error << "[" << header.sequence_number << "] [" << next_header->sequence_number << "] Dequeue: Can't update next header because it's being updated. Walks will stop here." << std::flush;
           dont_walk_beyond = next_header->sequence_number;
         } else {
           // Update the next header for future walkers.
@@ -221,7 +228,7 @@ std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const C
   const std::size_t to_conceal = std::min(packets, full_packets_fit);
   const unsigned long last = last_written_sequence_number.value();
   if (packets != to_conceal) {
-    std::cout << "Couldn't fit all missing. Asking for: " << to_conceal << "/" << packets << std::endl;
+    logger->warning << "Couldn't fit all missing. Asking for: " << to_conceal << "/" << packets << std::flush;
   }
   std::vector<Packet> concealment_packets = std::vector<Packet>(to_conceal);
   std::size_t previous = latest_written_elements;
@@ -266,7 +273,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   // Get the first header by moving back elements + metadata.
   const std::size_t this_chunk = latest_written_elements * element_size + METADATA_SIZE;
   if (this_chunk > written_at_start) {
-    std::cout << "Wanted to go back " << this_chunk << " bytes, but only have " << written_at_start << " bytes." << std::endl;
+    logger->warning << "Wanted to go back " << this_chunk << " bytes, but only have " << written_at_start << " bytes." << std::flush;
     return 0;
   }
   written_at_start -= this_chunk;
@@ -277,12 +284,12 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
     header = reinterpret_cast<Header*>(buffer + local_write_offset);
     if (header->sequence_number == packet.sequence_number) break;
     if (header->in_use.test_and_set(std::memory_order::acquire)) {
-      std::cout << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::endl;
+      logger->error << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::flush;
       return 0;
     }
 
     if (header->sequence_number <= dont_walk_beyond) {
-      std::cout << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Unwalkable." << std::endl;
+      logger->error << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Unwalkable." << std::flush;
       return 0;
     }
 
@@ -290,7 +297,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
     std::size_t to_move = (header->previous_elements * element_size) + METADATA_SIZE;
     if (to_move > written_at_start) {
       // Couldn't find it, probably already read.
-      std::cout << "[" << packet.sequence_number << "] Couldn't find target packet." << std::endl;
+      logger->warning << "[" << packet.sequence_number << "] Couldn't find target packet." << std::flush;
       header->in_use.clear(std::memory_order::release);
       return 0;
     }
@@ -303,7 +310,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   assert(header->concealment);
   if (header->in_use.test_and_set(std::memory_order::acquire)) {
     // It's being read, we can't update it.
-    std::cout << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::endl;
+    logger->error << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::flush;
     return 0;
   }
 
@@ -351,7 +358,7 @@ std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::siz
   // Ensure we have enough space.
   const std::size_t space = max_size_bytes - written;
   if (length > space) {
-    std::cerr << "No space! Wanted: " << length << " space: " << space << std::endl;
+    logger->error << "No space! Wanted: " << length << " space: " << space << std::flush;
     return 0;
   }
 
@@ -366,7 +373,7 @@ std::size_t JitterBuffer::CopyIntoBuffer(const std::uint8_t *src, const std::siz
 std::size_t JitterBuffer::CopyOutOfBuffer(std::uint8_t *destination, const std::size_t length, const std::size_t required_bytes, const bool strict) {
   if (required_bytes > length) {
     // Destination not big enough.
-    std::cerr << "Provided buffer not big enough" << std::endl;
+    logger->error << "Provided buffer not big enough" << std::flush;
     return -1;
   }
 
