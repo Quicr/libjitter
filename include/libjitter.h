@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-typedef void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_packets, void* user_data);
+typedef void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_packets, void *user_data);
 
 /**
    * @brief Construct a new Jitter Buffer object.
@@ -22,7 +22,7 @@ typedef void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_p
    * @param mix_length The minimum age of packets in milliseconds before eligible for dequeue.
    * @param logger Pointer to external parent logger.
    */
-void *JitterInit(size_t element_size, size_t packet_elements, unsigned long clock_rate, unsigned long max_length_ms, unsigned long min_length_ms, cantina::Logger* logger);
+void *JitterInit(size_t element_size, size_t packet_elements, unsigned long clock_rate, unsigned long max_length_ms, unsigned long min_length_ms, cantina::Logger *logger);
 
 /// @brief Enqueue packets of data.
 /// @param libjitter
@@ -31,7 +31,7 @@ void *JitterInit(size_t element_size, size_t packet_elements, unsigned long cloc
 /// @param concealment_callback Callback fires when concealment data is requested.
 /// @param free_callback Callback fires when the concealment packets are finished with.
 /// @return Number of elements enqueued.
-size_t JitterEnqueue(void *libjitter, const struct Packet packets[], size_t elements, LibJitterConcealmentCallback concealment_callback, void* user_data);
+size_t JitterEnqueue(void *libjitter, const struct Packet packets[], size_t elements, LibJitterConcealmentCallback concealment_callback, void *user_data);
 
 /// @brief Dequeue num elements from data into buffer.
 /// @param libjitter The jitter buffer instance to dequeue from.

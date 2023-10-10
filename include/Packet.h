@@ -11,7 +11,7 @@ struct Packet {
   size_t elements;
 
 #ifdef __cplusplus
-  bool operator ==(const Packet& other) const {
+  bool operator==(const Packet &other) const {
     return sequence_number == other.sequence_number &&
            memcmp(data, other.data, length) == 0 &&
            length == other.length &&

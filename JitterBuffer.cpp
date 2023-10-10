@@ -1,12 +1,12 @@
 #include "JitterBuffer.hh"
 
 #include <algorithm>
-#include <iostream>
 #include <cassert>
-#include <csignal>
 #include <cmath>
-#include <type_traits>
+#include <csignal>
+#include <iostream>
 #include <sstream>
+#include <type_traits>
 #ifdef __APPLE__
 #include <mach/mach.h>
 #elif _GNU_SOURCE
@@ -20,7 +20,7 @@ JitterBuffer::JitterBuffer(const std::size_t element_size,
                            const std::uint32_t clock_rate,
                            const milliseconds max_length,
                            const milliseconds min_length,
-                           const cantina::LoggerPointer& logger)
+                           const cantina::LoggerPointer &logger)
     : logger(std::make_shared<cantina::Logger>("JTTR", logger)),
       element_size(element_size),
       packet_elements(packet_elements),
@@ -43,7 +43,7 @@ JitterBuffer::JitterBuffer(const std::size_t element_size,
   static_assert(std::atomic<std::size_t>::is_always_lock_free);
 
   // VM Address trick for automatic wrap around.
-  const std::size_t buffer_size = max_length.count() * (clock_rate / 1000)  * (element_size + METADATA_SIZE);
+  const std::size_t buffer_size = max_length.count() * (clock_rate / 1000) * (element_size + METADATA_SIZE);
   max_size_bytes = buffer_size;
 #if _GNU_SOURCE
   vm_user_data = calloc(1, sizeof(int));
@@ -71,13 +71,13 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       enqueued += Update(packet);
       continue;
     } else if (last_written_sequence_number.has_value() && packet.sequence_number != last_written_sequence_number) {
-     const std::size_t last = last_written_sequence_number.value();
-     const std::size_t missing = packet.sequence_number - last - 1;
-     if (missing > 0) {
-       logger->warning << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::flush;
-       enqueued += GenerateConcealment(missing, concealment_callback);
-     }
-   }
+      const std::size_t last = last_written_sequence_number.value();
+      const std::size_t missing = packet.sequence_number - last - 1;
+      if (missing > 0) {
+        logger->warning << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::flush;
+        enqueued += GenerateConcealment(missing, concealment_callback);
+      }
+    }
 
     // Enqueue this packet of real data.
     if (packet.elements != packet_elements) {
@@ -103,14 +103,14 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
     // How many packets would cover this gap?
     const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate.count());
     assert(each_packet.count() > 0);
-    const std::size_t to_conceal = std::ceil((float)gap_to_min.count() / (float)each_packet.count());
+    const std::size_t to_conceal = std::ceil((float) gap_to_min.count() / (float) each_packet.count());
     logger->warning << "Below min fill level. Target: " << min_length.count() << "ms Actual: " << current.count() << "ms Need: " << to_conceal << std::flush;
     enqueued += GenerateConcealment(to_conceal, concealment_callback);
   }
 
   // If we're waiting to play, is it time to play?
   if (!play && GetCurrentDepth() >= min_length * 1.5) {
-      play = true;
+    play = true;
   }
 
   return enqueued;
@@ -140,7 +140,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
     // Get the header.
     Header header{};
-    [[maybe_unused]] const std::size_t copied = CopyOutOfBuffer((std::uint8_t*)&header, METADATA_SIZE, METADATA_SIZE, true);
+    [[maybe_unused]] const std::size_t copied = CopyOutOfBuffer((std::uint8_t *) &header, METADATA_SIZE, METADATA_SIZE, true);
     assert(copied == METADATA_SIZE);
     assert(header.elements > 0);
 
@@ -169,9 +169,9 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::size_t remaining_required_bytes = required_bytes - destination_offset;
     const std::size_t to_dequeue = std::min(available_or_space, remaining_required_bytes);
     const std::size_t bytes_dequeued = CopyOutOfBuffer(destination + destination_offset, destination_length - destination_offset, to_dequeue, true);
-    assert(bytes_dequeued <= to_dequeue); // We shouldn't get more than we asked for.
-    assert(bytes_dequeued > 0); // Because we got a header, we should get *something*.
-    assert(bytes_dequeued % element_size == 0); // We should only get whole elements out.
+    assert(bytes_dequeued <= to_dequeue);      // We shouldn't get more than we asked for.
+    assert(bytes_dequeued > 0);                // Because we got a header, we should get *something*.
+    assert(bytes_dequeued % element_size == 0);// We should only get whole elements out.
     destination_offset += bytes_dequeued;
     [[maybe_unused]] const std::size_t originally_available = header.elements;
     bool clear_header = true;
@@ -179,7 +179,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       // We didn't fully empty a packet, update the header to reflect what's left.
       UnwindRead(METADATA_SIZE);
       const std::size_t remaining_bytes = available_bytes - bytes_dequeued;
-      assert(remaining_bytes % element_size == 0); // We should only get whole elements.
+      assert(remaining_bytes % element_size == 0);// We should only get whole elements.
       header.elements = remaining_bytes / element_size;
       assert(header.elements > 0);
       if (header.concealment) {
@@ -191,7 +191,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       // We need to update the next header's previous elements too.
       if (written >= (METADATA_SIZE * 2) + header.elements * element_size) {
         std::size_t next_header_offset = (read_offset + METADATA_SIZE + header.elements * element_size) % max_size_bytes;
-        Header* next_header = reinterpret_cast<Header*>(buffer + next_header_offset);
+        Header *next_header = reinterpret_cast<Header *>(buffer + next_header_offset);
         assert(next_header->sequence_number == header.sequence_number + 1);
         if (next_header->in_use.test_and_set(std::memory_order::acquire)) {
           // We can't alter this packet so we'll have to signal the walk to stop here in the future.
@@ -209,18 +209,18 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       header.in_use.clear(std::memory_order::release);
     }
     [[maybe_unused]] const std::size_t dequeued_elements = bytes_dequeued / element_size;
-    assert(dequeued_elements <= originally_available); // We should not get more than available.
+    assert(dequeued_elements <= originally_available);// We should not get more than available.
     dequeued_bytes += bytes_dequeued;
   }
 
-  assert(dequeued_bytes % element_size == 0); // We should only get whole elements.
+  assert(dequeued_bytes % element_size == 0);// We should only get whole elements.
   const std::size_t dequeued_elements = dequeued_bytes / element_size;
-  assert(dequeued_elements <= elements); // We should not get more than asked for.
+  assert(dequeued_elements <= elements);// We should not get more than asked for.
   written_elements -= dequeued_elements;
   return dequeued_elements;
 }
 
-std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const ConcealmentCallback& callback) {
+std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const ConcealmentCallback &callback) {
   // Alter missing to be the smallest of the missing packets or what we can currently fit in the buffer.
   const std::size_t space = max_size_bytes - written;
   const std::size_t packet_size = (packet_elements * element_size) + METADATA_SIZE;
@@ -236,21 +236,21 @@ std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const C
     // We need to write the header for this packet.
     const std::int64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     Header header = {
-      .sequence_number = static_cast<uint32_t>(last + sequence_offset + 1),
-      .elements = packet_elements,
-      .timestamp = static_cast<uint64_t>(now_ms),
-      .concealment = true,
-      .previous_elements = previous,
+            .sequence_number = static_cast<uint32_t>(last + sequence_offset + 1),
+            .elements = packet_elements,
+            .timestamp = static_cast<uint64_t>(now_ms),
+            .concealment = true,
+            .previous_elements = previous,
     };
     previous = header.elements;
-    CopyIntoBuffer(reinterpret_cast<std::uint8_t*>(&header), METADATA_SIZE, true, 0);
+    CopyIntoBuffer(reinterpret_cast<std::uint8_t *>(&header), METADATA_SIZE, true, 0);
     write_offset = (write_offset + METADATA_SIZE) % max_size_bytes;
     const std::size_t length = header.elements * element_size;
     concealment_packets[sequence_offset] = {
-    .sequence_number = header.sequence_number,
-    .data = buffer + write_offset,
-    .length = length,
-    .elements = header.elements,
+            .sequence_number = header.sequence_number,
+            .data = buffer + write_offset,
+            .length = length,
+            .elements = header.elements,
     };
     write_offset = (write_offset + length) % max_size_bytes;
   }
@@ -278,10 +278,10 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   }
   written_at_start -= this_chunk;
   local_write_offset = ((local_write_offset - this_chunk) + this_chunk * max_size_bytes) % max_size_bytes;
-  Header* header;
-  while(true) {
+  Header *header;
+  while (true) {
     // Parse the header that should be located here.
-    header = reinterpret_cast<Header*>(buffer + local_write_offset);
+    header = reinterpret_cast<Header *>(buffer + local_write_offset);
     if (header->sequence_number == packet.sequence_number) break;
     if (header->in_use.test_and_set(std::memory_order::acquire)) {
       logger->error << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::flush;
@@ -316,7 +316,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
 
   // Copy in the updated data.
   const std::size_t source_offset_frames = packet.elements - header->elements;
-  memcpy(buffer + ((local_write_offset + METADATA_SIZE) % max_size_bytes), reinterpret_cast<std::uint8_t*>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
+  memcpy(buffer + ((local_write_offset + METADATA_SIZE) % max_size_bytes), reinterpret_cast<std::uint8_t *>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
   header->concealment = false;
   header->in_use.clear(std::memory_order::release);
   return header->elements;
@@ -340,7 +340,7 @@ std::size_t JitterBuffer::CopyIntoBuffer(const Packet &packet) {
   }
   const std::size_t remainder = enqueued % element_size;
   const std::size_t enqueued_element_bytes = enqueued - remainder;
-  assert(enqueued_element_bytes % element_size == 0); // We should write whole elements.
+  assert(enqueued_element_bytes % element_size == 0);// We should write whole elements.
   header.elements = enqueued_element_bytes / element_size;
   assert(header.elements > 0);
   header.previous_elements = latest_written_elements;
@@ -394,7 +394,7 @@ std::size_t JitterBuffer::CopyOutOfBuffer(std::uint8_t *destination, const std::
   return available;
 }
 
-std::uint8_t* JitterBuffer::GetReadPointerAtPacketOffset(const std::size_t read_offset_packets) const {
+std::uint8_t *JitterBuffer::GetReadPointerAtPacketOffset(const std::size_t read_offset_packets) const {
   const std::size_t read_offset_bytes = METADATA_SIZE + (read_offset_packets * (METADATA_SIZE + (packet_elements * element_size)));
   if (read_offset_bytes >= max_size_bytes) {
     throw std::runtime_error("Offset cannot be greater than the size of the buffer");
@@ -437,7 +437,7 @@ milliseconds JitterBuffer::GetCurrentDepth() const {
   return milliseconds(static_cast<std::int64_t>(ms));
 }
 
-void* JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void* user_data) {
+void *JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void *user_data) {
   // Get buffer length as multiple of page size.
 #ifdef __APPLE__
   length = round_page(length);
@@ -446,7 +446,7 @@ void* JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void
   length = length + page_size - (length % page_size);
 #endif
 
-  void* address;
+  void *address;
 #if __APPLE__
   vm_address_t buffer_address;
   [[maybe_unused]] kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, length * 2, VM_FLAGS_ANYWHERE);
@@ -459,7 +459,7 @@ void* JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void
   result = vm_remap(mach_task_self(), &virtual_address, length, 0, 0, mach_task_self(), buffer_address, 0, &current, &max, VM_INHERIT_DEFAULT);
   assert(result == ERR_SUCCESS);
   assert(virtual_address == buffer_address + length);
-  address = reinterpret_cast<void*>(buffer_address);
+  address = reinterpret_cast<void *>(buffer_address);
 #elif _GNU_SOURCE
   int fd = memfd_create("buffer", 0);
   memcpy(user_data, &fd, sizeof(fd));
@@ -467,22 +467,22 @@ void* JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void
   assert(truncated == 0);
   address = mmap(nullptr, 2 * length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   mmap(address, length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
-  auto typed_address = reinterpret_cast<std::uint8_t*>(address);
-  mmap(reinterpret_cast<void*>(typed_address + length), length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
+  auto typed_address = reinterpret_cast<std::uint8_t *>(address);
+  mmap(reinterpret_cast<void *>(typed_address + length), length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
 #else
   throw std::runtime_error("No virtual memory implementation");
 #endif
   return address;
 }
 
-void JitterBuffer::FreeVirtualMemory(void *address, const std::size_t length, [[maybe_unused]] void* user_data) {
+void JitterBuffer::FreeVirtualMemory(void *address, const std::size_t length, [[maybe_unused]] void *user_data) {
 #ifdef __APPLE__
   vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(address), length * 2);
 #elif _GNU_SOURCE
-  auto typed_address = reinterpret_cast<std::uint8_t*>(address);
+  auto typed_address = reinterpret_cast<std::uint8_t *>(address);
   munmap(typed_address + length, length);
   munmap(address, length);
-  close(*reinterpret_cast<int*>(user_data));
+  close(*reinterpret_cast<int *>(user_data));
   free(user_data);
 #else
   throw std::runtime_error("No virtual memory implementation");
