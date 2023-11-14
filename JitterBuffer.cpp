@@ -31,6 +31,8 @@ JitterBuffer::JitterBuffer(const std::size_t element_size,
       write_offset(0),
       written(0),
       written_elements(0) {
+  memset(&metrics, 0, sizeof(metrics));
+
   // Packets should be at least 1ms.
   const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate);
   if (each_packet.count() < 1) {
@@ -75,7 +77,9 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       const std::size_t missing = packet.sequence_number - last - 1;
       if (missing > 0) {
         logger->warning << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::flush;
-        enqueued += GenerateConcealment(missing, concealment_callback);
+        const auto concealed = GenerateConcealment(missing, concealment_callback);
+        enqueued += concealed;
+        this->metrics.concealed_packets += concealed;
       }
     }
 
@@ -105,7 +109,9 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
     assert(each_packet.count() > 0);
     const std::size_t to_conceal = std::ceil((float) gap_to_min.count() / (float) each_packet.count());
     logger->warning << "Below min fill level. Target: " << min_length.count() << "ms Actual: " << current.count() << "ms Need: " << to_conceal << std::flush;
-    enqueued += GenerateConcealment(to_conceal, concealment_callback);
+    const auto concealed = GenerateConcealment(to_conceal, concealment_callback);
+    enqueued += concealed;
+    this->metrics.filled_packets = concealed;
   }
 
   // If we're waiting to play, is it time to play?
@@ -157,9 +163,9 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     const std::uint64_t age = now_ms - header.timestamp;
     if (age >= static_cast<std::uint64_t>(max_length.count())) {
       // It's too old, throw this away and run to the next.
-      logger->info << "Too old: " << age << "/" << max_length.count() << std::flush;
       assert(header.elements <= packet_elements);
       ForwardRead(header.elements * element_size);
+      skipped_frames += header.elements;
       continue;
     }
 
@@ -254,6 +260,7 @@ std::size_t JitterBuffer::GenerateConcealment(const std::size_t packets, const C
     };
     write_offset = (write_offset + length) % max_size_bytes;
   }
+  
   callback(concealment_packets);
 
   // Now that we've finished providing data, update values for the reader.
@@ -274,6 +281,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   const std::size_t this_chunk = latest_written_elements * element_size + METADATA_SIZE;
   if (this_chunk > written_at_start) {
     logger->warning << "Wanted to go back " << this_chunk << " bytes, but only have " << written_at_start << " bytes." << std::flush;
+    this->metrics.update_missed_frames += packet.elements;
     return 0;
   }
   written_at_start -= this_chunk;
@@ -299,6 +307,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
       // Couldn't find it, probably already read.
       logger->warning << "[" << packet.sequence_number << "] Couldn't find target packet." << std::flush;
       header->in_use.clear(std::memory_order::release);
+      this->metrics.update_missed_frames += packet.elements;
       return 0;
     }
     local_write_offset = ((local_write_offset - to_move) + to_move * max_size_bytes) % max_size_bytes;
@@ -319,6 +328,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   memcpy(buffer + ((local_write_offset + METADATA_SIZE) % max_size_bytes), reinterpret_cast<std::uint8_t *>(packet.data) + (source_offset_frames * element_size), header->elements * element_size);
   header->concealment = false;
   header->in_use.clear(std::memory_order::release);
+  this->metrics.updated_frames += header->elements;
   return header->elements;
 }
 
@@ -435,6 +445,13 @@ void JitterBuffer::ForwardWrite(const std::size_t forward_bytes) {
 milliseconds JitterBuffer::GetCurrentDepth() const {
   const float ms = written_elements * 1000 / clock_rate.count();
   return milliseconds(static_cast<std::int64_t>(ms));
+}
+
+Metrics JitterBuffer::GetMetrics() const {
+  // Get current copy of metrics, updating skipped from other thread's atomic value.
+  auto result = this->metrics;
+  result.skipped_frames = skipped_frames;
+  return result;
 }
 
 void *JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void *user_data) {

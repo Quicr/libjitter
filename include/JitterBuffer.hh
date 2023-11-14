@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Packet.h"
+#include "Metrics.h"
 
 #include <cantina/logger.h>
 
@@ -80,6 +81,8 @@ class JitterBuffer {
    */
   std::chrono::milliseconds GetCurrentDepth() const;
 
+  Metrics GetMetrics() const;
+
 #ifdef LIBJITTER_BUILD_TESTS
   friend class BufferInspector;
 #endif
@@ -105,6 +108,8 @@ class JitterBuffer {
   void *vm_user_data;
   std::size_t latest_written_elements;
   std::atomic<unsigned long> dont_walk_beyond;
+  std::atomic<unsigned long> skipped_frames;
+  Metrics metrics;
 
   std::size_t GenerateConcealment(std::size_t packets, const ConcealmentCallback &callback);
   std::size_t Update(const Packet &packet);
