@@ -13,6 +13,8 @@ struct Metrics {
   unsigned long updated_frames;
   /// @brief Number of real frames that arrived too late to be used to update concealment data.
   unsigned long update_missed_frames;
+  /// @brief Current depth in milliseconds;
+  unsigned long depth;
 };
 
 #endif

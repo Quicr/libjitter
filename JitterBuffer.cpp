@@ -156,15 +156,16 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       // It's not safe for us to read it - skip to the next available packet.
       logger->error << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::flush;
       ForwardRead(header.elements * element_size);
+      written_elements -= header.elements;
       continue;
     }
 
-    const std::uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    const std::uint64_t age = now_ms - header.timestamp;
-    if (age >= static_cast<std::uint64_t>(max_length.count())) {
-      // It's too old, throw this away and run to the next.
+    // If we're over maximum depth, catch up.
+    const auto current_depth = GetCurrentDepth();
+    if (current_depth >= max_length) {
       assert(header.elements <= packet_elements);
       ForwardRead(header.elements * element_size);
+      written_elements -= header.elements;
       skipped_frames += header.elements;
       continue;
     }
@@ -451,6 +452,7 @@ Metrics JitterBuffer::GetMetrics() const {
   // Get current copy of metrics, updating skipped from other thread's atomic value.
   auto result = this->metrics;
   result.skipped_frames = skipped_frames;
+  result.depth = GetCurrentDepth().count();
   return result;
 }
 
