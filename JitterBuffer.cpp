@@ -62,6 +62,31 @@ JitterBuffer::~JitterBuffer() {
   FreeVirtualMemory(buffer, max_size_bytes, vm_user_data);
 }
 
+std::size_t JitterBuffer::Prepare(const std::uint32_t sequence_number, const ConcealmentCallback &concealment_callback) {
+  std::cout << sequence_number << std::endl;
+  if (!last_written_sequence_number.has_value()) {
+    // Nothing to do.
+    return 0;
+  }
+
+  const unsigned long last = last_written_sequence_number.value();
+  if (sequence_number <= last) {
+    // Might be an update, nothing to do.
+    return 0;
+  }
+
+  if (sequence_number == last + 1) {
+    // This is the next packet, nothing to do.
+    return 0;
+  }
+
+  // In all other cases, we're missing packets.
+  const std::size_t missing = sequence_number - last - 1;
+  const std::size_t concealed = GenerateConcealment(missing, concealment_callback);
+  this->metrics.concealed_packets += concealed;
+  return concealed;
+}
+
 std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback) {
   std::size_t enqueued = 0;
 

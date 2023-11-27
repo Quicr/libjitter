@@ -465,4 +465,76 @@ TEST_CASE("libjitter::update_expired")
   CHECK_EQ(0, updated);
 }
 
+TEST_CASE("libjitter::prepare") {
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(0), logger);
+
+  // Prepare should return 0 when nothing written.
+  {
+    const std::size_t prepared = buffer.Prepare(1,
+                                                [](const std::vector<Packet> &) {
+                                                  FAIL("Unexpected concealment");
+                                                });
+    CHECK_EQ(prepared, 0);
+  }
+
+  Packet packet = makeTestPacket(1, frame_size, frames_per_packet);
+  std::vector<Packet> packets = std::vector<Packet>();
+  packets.push_back(packet);
+  const std::size_t enqueued = buffer.Enqueue(
+          packets,
+          [](const std::vector<Packet> &) {
+            FAIL("Unexpected concealment");
+          });
+  CHECK_EQ(enqueued, packet.elements);
+  free(packet.data);
+
+  // Update should return nothing.
+  {
+    {
+      // Previous.
+    const std::size_t prepared = buffer.Prepare(0,
+                                                [](const std::vector<Packet> &) {
+                                                  FAIL("Unexpected concealment");
+                                                });
+      CHECK_EQ(prepared, 0);
+    }
+    {
+      // Latest.
+    const std::size_t prepared = buffer.Prepare(1,
+                                                [](const std::vector<Packet> &) {
+                                                  FAIL("Unexpected concealment");
+                                                });
+      CHECK_EQ(prepared, 0);
+    }
+  }
+
+  // Prepare should return nothing for the next sequence.
+  {
+    const std::size_t prepared = buffer.Prepare(packet.sequence_number + 1,
+                                                [](const std::vector<Packet> &) {
+                                                  FAIL("Unexpected concealment");
+                                                });
+    CHECK_EQ(prepared, 0);
+  }
+
+  // Prepare should return the number of missing frames.
+  {
+    bool fired = false;
+    const std::uint32_t next_seq = packet.sequence_number + 2;
+    const std::size_t prepared = buffer.Prepare(next_seq,
+                                                [packet, &fired, next_seq](const std::vector<Packet> &packets) {
+                                                  CHECK_EQ(packets.size(), 1);
+                                                  auto concealment = packets[0];
+                                                  CHECK_EQ(next_seq - 1, concealment.sequence_number);
+                                                  CHECK_EQ(packet.elements, concealment.elements);
+                                                  CHECK_EQ(packet.length, concealment.length);
+                                                  fired = true;
+                                                });
+    CHECK_EQ(prepared, packet.elements);
+    CHECK(fired);
+  }
+}
+
 // TODO: Test for only dequeing some of packet, then dequeueing the rest.
