@@ -63,7 +63,6 @@ JitterBuffer::~JitterBuffer() {
 }
 
 std::size_t JitterBuffer::Prepare(const std::uint32_t sequence_number, const ConcealmentCallback &concealment_callback) {
-  std::cout << sequence_number << std::endl;
   if (!last_written_sequence_number.has_value()) {
     // Nothing to do.
     return 0;
