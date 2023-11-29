@@ -103,7 +103,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
         logger->warning << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::flush;
         const auto concealed = GenerateConcealment(missing, concealment_callback);
         enqueued += concealed;
-        this->metrics.concealed_packets += concealed;
+        this->metrics.concealed_frames += concealed;
       }
     }
 
