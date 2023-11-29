@@ -4,7 +4,7 @@
 /// @brief Structure defining metrics LibJitter reports.
 struct Metrics {
   /// @brief Number of frames concealed due to a discontinuity.
-  unsigned long concealed_packets;
+  unsigned long concealed_frames;
   /// @brief Number of frames skipped due to expiry.
   unsigned long skipped_frames;
   /// @brief Number of frames concealed to fill to minimum depth.

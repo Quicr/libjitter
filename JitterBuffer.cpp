@@ -80,10 +80,10 @@ std::size_t JitterBuffer::Prepare(const std::uint32_t sequence_number, const Con
   }
 
   // In all other cases, we're missing packets.
-  const std::size_t missing = sequence_number - last - 1;
-  const std::size_t concealed = GenerateConcealment(missing, concealment_callback);
-  this->metrics.concealed_packets += concealed;
-  return concealed;
+  const std::size_t missing_packets = sequence_number - last - 1;
+  const std::size_t concealed_frames = GenerateConcealment(missing_packets, concealment_callback);
+  this->metrics.concealed_frames += concealed_frames;
+  return concealed_frames;
 }
 
 std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const ConcealmentCallback &concealment_callback) {
