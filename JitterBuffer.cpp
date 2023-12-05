@@ -100,7 +100,6 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
       const std::size_t last = last_written_sequence_number.value();
       const std::size_t missing = packet.sequence_number - last - 1;
       if (missing > 0) {
-        logger->warning << "Discontinuity detected. Last written was: " << last << " this is: " << packet.sequence_number << " need: " << missing << std::flush;
         const auto concealed = GenerateConcealment(missing, concealment_callback);
         enqueued += concealed;
         this->metrics.concealed_frames += concealed;
@@ -125,14 +124,12 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
 
   // Now that we've written, check the fill level.
   // If it's below the min fill level, we need to conceal.
-  const milliseconds current = GetCurrentDepth();
   const milliseconds gap_to_min = min_length - GetCurrentDepth();
   if (play && gap_to_min.count() > 0) {
     // How many packets would cover this gap?
     const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate.count());
     assert(each_packet.count() > 0);
     const std::size_t to_conceal = std::ceil((float) gap_to_min.count() / (float) each_packet.count());
-    logger->warning << "Below min fill level. Target: " << min_length.count() << "ms Actual: " << current.count() << "ms Need: " << to_conceal << std::flush;
     const auto concealed = GenerateConcealment(to_conceal, concealment_callback);
     enqueued += concealed;
     this->metrics.filled_packets = concealed;
@@ -178,7 +175,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
     if (header.concealment && header.in_use.test_and_set(std::memory_order::acquire)) {
       // This packet is currently being updated from concealment data to real data.
       // It's not safe for us to read it - skip to the next available packet.
-      logger->error << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::flush;
+      logger->warning << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::flush;
       ForwardRead(header.elements * element_size);
       continue;
     }
@@ -316,12 +313,12 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
     header = reinterpret_cast<Header *>(buffer + local_write_offset);
     if (header->sequence_number == packet.sequence_number) break;
     if (header->in_use.test_and_set(std::memory_order::acquire)) {
-      logger->error << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::flush;
+      logger->warning << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Packet in use. Stopping walk." << std::flush;
       return 0;
     }
 
     if (header->sequence_number <= dont_walk_beyond) {
-      logger->error << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Unwalkable." << std::flush;
+      logger->warning << "[" << packet.sequence_number << "] [" << header->sequence_number << "] Unwalkable." << std::flush;
       return 0;
     }
 
@@ -343,7 +340,7 @@ std::size_t JitterBuffer::Update(const Packet &packet) {
   assert(header->concealment);
   if (header->in_use.test_and_set(std::memory_order::acquire)) {
     // It's being read, we can't update it.
-    logger->error << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::flush;
+    logger->warning << "[" << packet.sequence_number << "] Update called on a packet that is currently being read" << std::flush;
     return 0;
   }
 
