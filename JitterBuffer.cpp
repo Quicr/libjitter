@@ -33,6 +33,11 @@ JitterBuffer::JitterBuffer(const std::size_t element_size,
       written_elements(0) {
   memset(&metrics, 0, sizeof(metrics));
 
+  // Max size needs to be >0.
+  if (max_length.count() <= 0) {
+    throw std::invalid_argument("Max length must be >0");
+  }
+
   // Packets should be at least 1ms.
   const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate);
   if (each_packet.count() < 1) {
@@ -59,7 +64,11 @@ JitterBuffer::JitterBuffer(const std::size_t element_size,
 }
 
 JitterBuffer::~JitterBuffer() {
-  FreeVirtualMemory(buffer, max_size_bytes, vm_user_data);
+  try {
+    FreeVirtualMemory(buffer, max_size_bytes, vm_user_data);
+  } catch (...) {
+    logger->error << "Failed to free virtual memory" << std::flush;
+  }
 }
 
 std::size_t JitterBuffer::Prepare(const std::uint32_t sequence_number, const ConcealmentCallback &concealment_callback) {
@@ -487,16 +496,38 @@ void *JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void
   void *address;
 #if __APPLE__
   vm_address_t buffer_address;
-  [[maybe_unused]] kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, length * 2, VM_FLAGS_ANYWHERE);
-  assert(result == ERR_SUCCESS);
+  kern_return_t result = vm_allocate(mach_task_self(), &buffer_address, length * 2, VM_FLAGS_ANYWHERE);
+  if (result != ERR_SUCCESS) {
+    throw std::runtime_error("Failed to allocate virtual memory");
+  }
   result = vm_deallocate(mach_task_self(), buffer_address + length, length);
-  assert(result == ERR_SUCCESS);
+  if (result != ERR_SUCCESS) {
+    throw std::runtime_error("Failed to deallocate virtual memory");
+  }
   vm_address_t virtual_address = buffer_address + length;
   vm_prot_t current;
   vm_prot_t max;
   result = vm_remap(mach_task_self(), &virtual_address, length, 0, 0, mach_task_self(), buffer_address, 0, &current, &max, VM_INHERIT_DEFAULT);
-  assert(result == ERR_SUCCESS);
-  assert(virtual_address == buffer_address + length);
+  if (result != ERR_SUCCESS) {
+    result = vm_deallocate(mach_task_self(), buffer_address, length);
+    std::ostringstream message;
+    message << "Failed to remap virtual memory";
+    if (result != ERR_SUCCESS) {
+      message << " and failed to deallocate original memory";
+    }
+    throw std::runtime_error(message.str());
+  }
+  if (virtual_address != buffer_address + length) {
+    bool freed = true;
+    freed &= vm_deallocate(mach_task_self(), buffer_address, length) == ERR_SUCCESS;
+    freed &= vm_deallocate(mach_task_self(), virtual_address, length) == ERR_SUCCESS;
+    std::ostringstream message;
+    message << "Remapped memory was not at expected location";
+    if (!freed) {
+      message << " and failed to deallocate original memory";
+    }
+    throw std::runtime_error(message.str());
+  }
   address = reinterpret_cast<void *>(buffer_address);
 #elif _GNU_SOURCE
   int fd = memfd_create("buffer", 0);
@@ -515,7 +546,10 @@ void *JitterBuffer::MakeVirtualMemory(std::size_t &length, [[maybe_unused]] void
 
 void JitterBuffer::FreeVirtualMemory(void *address, const std::size_t length, [[maybe_unused]] void *user_data) {
 #ifdef __APPLE__
-  vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(address), length * 2);
+  kern_return_t result = vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(address), length * 2);
+  if (result != ERR_SUCCESS) {
+    throw std::runtime_error("Failed to deallocate virtual memory");
+  }
 #elif _GNU_SOURCE
   auto typed_address = reinterpret_cast<std::uint8_t *>(address);
   munmap(typed_address + length, length);
