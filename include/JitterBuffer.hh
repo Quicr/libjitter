@@ -50,6 +50,14 @@ class JitterBuffer {
   ~JitterBuffer();
 
   /**
+   * @brief Prepare the buffer for the given sequence number, generating concealment data for any missing packets.
+   * 
+   * @param sequence_number The sequence number to prepare for.
+   * @param concealment_callback Fired when concealment data needs to be generated. 
+   */
+  std::size_t Prepare(const std::uint32_t sequence_number, const ConcealmentCallback &concealment_callback);
+
+  /**
    * @brief Enqueue a number of packets onto the buffer. This must be called from a single writer thread.
    *
    * @param packets The packets to enqueue.

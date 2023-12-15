@@ -18,6 +18,22 @@ void *JitterInit(const size_t element_size,
                           cantina::LoggerPointer(logger));
 }
 
+size_t JitterPrepare(void *libjitter,
+                     const unsigned long sequence_number,
+                     const LibJitterConcealmentCallback concealment_callback,
+                     void *user_data) {
+  auto *buffer = static_cast<JitterBuffer *>(libjitter);
+  JitterBuffer::ConcealmentCallback callback = [concealment_callback, user_data](std::vector<Packet> &packets) {
+    concealment_callback(&packets[0], packets.capacity(), user_data);
+  };
+  try {
+    return buffer->Prepare(sequence_number, callback);
+  } catch (const std::exception &ex) {
+    std::cerr << ex.what() << std::endl;
+    return 0;
+  }
+}
+
 size_t JitterEnqueue(void *libjitter,
                      const Packet packets[],
                      const size_t elements,

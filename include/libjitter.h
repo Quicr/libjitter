@@ -24,6 +24,14 @@ typedef void (*LibJitterConcealmentCallback)(struct Packet *, const size_t num_p
    */
 void *JitterInit(size_t element_size, size_t packet_elements, unsigned long clock_rate, unsigned long max_length_ms, unsigned long min_length_ms, cantina::Logger *logger);
 
+/// @brief Prepare the buffer for the given sequence number, generating concealment data for any missing packets.
+/// @param libjitter The jitter buffer instance.
+/// @param sequence_number The sequence number to prepare for.
+/// @param concealment_callback Fired when concealment data needs to be generated.
+/// @param user_data User data pointer passed to concealment_callback.
+/// @return Number of elements concealed.
+size_t JitterPrepare(void* libjitter, const unsigned long sequence_number, LibJitterConcealmentCallback concealment_callback, void *user_data);
+
 /// @brief Enqueue packets of data.
 /// @param libjitter
 /// @param packets Array of packets of data.
