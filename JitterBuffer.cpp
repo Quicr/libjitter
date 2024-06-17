@@ -159,12 +159,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
 
   std::size_t dequeued_bytes = 0;
   std::size_t destination_offset = 0;
-  while (dequeued_bytes < required_bytes) {
-    // Check there's space for a header.
-    if (written < METADATA_SIZE) {
-      return dequeued_bytes / element_size;
-    }
-
+  while (written >= METADATA_SIZE && dequeued_bytes < required_bytes) {
     // Get the header.
     Header header{};
     [[maybe_unused]] const std::size_t copied = CopyOutOfBuffer((std::uint8_t *) &header, METADATA_SIZE, METADATA_SIZE, true);
