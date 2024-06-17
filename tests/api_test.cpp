@@ -387,8 +387,8 @@ TEST_CASE("libjitter::too_old") {
 
 TEST_CASE("libjitter::buffer_too_small")
 {
-  auto buffer = JitterBuffer(2, 480, 100000, milliseconds(0), milliseconds(0), logger);
-  buffer.Enqueue(std::vector<Packet>{makeTestPacket(1, 2, 480)}, [](const std::vector<Packet>&){});
+  auto buffer = JitterBuffer(2, 480, 100000, milliseconds(100), milliseconds(0), logger);
+  buffer.Enqueue(std::vector<Packet>{makeTestPacket(1, sizeof(int), 480)}, [](const std::vector<Packet>&){});
   void* dest = malloc(1);
   CHECK_THROWS_WITH_AS(buffer.Dequeue(reinterpret_cast<std::uint8_t*>(dest), 1, 480), "Provided buffer too small. Was: 1, need: 960" ,const std::invalid_argument&);
   free(dest);
