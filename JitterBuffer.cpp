@@ -186,25 +186,28 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       skipped_frames += header.elements;
       written_elements -= header.elements;
       // This counts for a skip.
-      const size_t skipped = std::min(header.elements, elements_to_skip);
-      elements_to_skip -= skipped;
+      elements_to_skip -= header.elements;
+      written_elements -= header.elements;
       continue;
     }
 
     // We might want to skip over some frames.
     if (elements_to_skip > 0) {
       // If we would skip this entire thing, just forward the read.
-      if (header.elements >= elements_to_skip) {
+      if (elements_to_skip >= std::int64_t(header.elements)) {
         ForwardRead(header.elements * element_size);
         elements_to_skip -= header.elements;
+        written_elements -= header.elements;
         continue;
       }
 
       // Otherwise, we're only going to skip some of this packet.
       // So we need to adjust this header and the next to reflect that.
+      assert(elements_to_skip < header.elements);
       ForwardRead(elements_to_skip * element_size);
       UnwindRead(METADATA_SIZE);
       const std::size_t new_elements = header.elements - elements_to_skip;
+      written_elements -= elements_to_skip;
       elements_to_skip = 0;
       header.elements = new_elements;
       memcpy(buffer + read_offset, &header, METADATA_SIZE);
