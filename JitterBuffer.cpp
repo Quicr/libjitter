@@ -172,6 +172,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       // It's not safe for us to read it - skip to the next available packet.
       logger->warning << "[" << header.sequence_number << "] Dequeue: Can't read concealment packet because it's being updated." << std::flush;
       ForwardRead(header.elements * element_size);
+      written_elements -= header.elements;
       continue;
     }
 
@@ -182,6 +183,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       assert(header.elements <= packet_elements);
       ForwardRead(header.elements * element_size);
       skipped_frames += header.elements;
+      written_elements -= header.elements;
       continue;
     }
 
