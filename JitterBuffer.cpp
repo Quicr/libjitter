@@ -123,8 +123,8 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
   }
 
   // Now that we've written, check the fill level.
-  // If it's below the min fill level, we need to conceal.
-  const milliseconds gap_to_min = min_length - GetCurrentDepth();
+  // If it's below 1/2 the min fill level, we need to conceal.
+  const milliseconds gap_to_min = (min_length / 2) - GetCurrentDepth();
   if (play && gap_to_min.count() > 0) {
     // How many packets would cover this gap?
     const milliseconds each_packet = milliseconds(packet_elements * 1000 / clock_rate.count());
@@ -136,7 +136,7 @@ std::size_t JitterBuffer::Enqueue(const std::vector<Packet> &packets, const Conc
   }
 
   // If we're waiting to play, is it time to play?
-  if (!play && GetCurrentDepth() >= min_length * 1.5) {
+  if (!play && GetCurrentDepth() >= min_length) {
     play = true;
   }
 
