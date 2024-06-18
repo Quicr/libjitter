@@ -537,4 +537,34 @@ TEST_CASE("libjitter::prepare") {
   }
 }
 
+TEST_CASE("libjitter::play") {
+  const std::size_t frame_size = 2 * 2;
+  const std::size_t frames_per_packet = 480;
+  auto buffer = JitterBuffer(frame_size, frames_per_packet, 48000, milliseconds(100), milliseconds(20), logger);
+  const auto packet = makeTestPacket(1, frame_size, frames_per_packet);
+  const auto enqueued = buffer.Enqueue(std::vector<Packet>{packet}, [](const std::vector<Packet>&){
+    FAIL("Unexpected concealment");
+  });
+  CHECK_EQ(enqueued, packet.elements);
+  
+  // This should not dequeue anything because we're under the min level.
+  void* destination = malloc(frames_per_packet * frame_size);
+  const auto dequeued = buffer.Dequeue(static_cast<std::uint8_t*>(destination), frames_per_packet * frame_size, frames_per_packet);
+  CHECK_EQ(dequeued, 0);
+
+  // After the next packet, we should get the first as we begin to play.
+  const auto packet2 = makeTestPacket(2, frame_size, frames_per_packet);
+  const auto enqueued2 = buffer.Enqueue(std::vector<Packet>{packet2}, [](const std::vector<Packet>&){
+    FAIL("Unexpected concealment");
+  });
+  CHECK_EQ(enqueued2, packet2.elements);
+  const auto dequeued2 = buffer.Dequeue(static_cast<std::uint8_t*>(destination), frames_per_packet * frame_size, frames_per_packet);
+  CHECK_EQ(dequeued2, frames_per_packet);
+  CHECK_EQ(memcmp(destination, packet.data, frames_per_packet * frame_size), 0);
+  const auto dequeued3 = buffer.Dequeue(static_cast<std::uint8_t*>(destination), frames_per_packet * frame_size, frames_per_packet);
+  CHECK_EQ(dequeued3, frames_per_packet);
+  CHECK_EQ(memcmp(destination, packet2.data, frames_per_packet * frame_size), 0);
+  free(destination);
+}
+
 // TODO: Test for only dequeing some of packet, then dequeueing the rest.
