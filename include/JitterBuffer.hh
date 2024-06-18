@@ -118,6 +118,7 @@ class JitterBuffer {
   std::atomic<unsigned long> dont_walk_beyond;
   std::atomic<unsigned long> skipped_frames;
   Metrics metrics;
+  std::size_t elements_to_skip = 0;
 
   std::size_t GenerateConcealment(std::size_t packets, const ConcealmentCallback &callback);
   std::size_t Update(const Packet &packet);

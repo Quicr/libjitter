@@ -176,6 +176,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       continue;
     }
 
+    // Stale data will be skipped over if it has expired.
     const std::uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     const std::uint64_t age = now_ms - header.timestamp;
     if (age >= static_cast<std::uint64_t>(max_length.count())) {
@@ -184,7 +185,44 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       ForwardRead(header.elements * element_size);
       skipped_frames += header.elements;
       written_elements -= header.elements;
+      // This counts for a skip.
+      const size_t skipped = std::min(header.elements, elements_to_skip);
+      elements_to_skip -= skipped;
       continue;
+    }
+
+    // We might want to skip over some frames.
+    if (elements_to_skip > 0) {
+      // If we would skip this entire thing, just forward the read.
+      if (header.elements >= elements_to_skip) {
+        ForwardRead(header.elements * element_size);
+        elements_to_skip -= header.elements;
+        continue;
+      }
+
+      // Otherwise, we're only going to skip some of this packet.
+      // So we need to adjust this header and the next to reflect that.
+      ForwardRead(elements_to_skip * element_size);
+      UnwindRead(METADATA_SIZE);
+      const std::size_t new_elements = header.elements - elements_to_skip;
+      elements_to_skip = 0;
+      header.elements = new_elements;
+      memcpy(buffer + read_offset, &header, METADATA_SIZE);
+      if (written >= (METADATA_SIZE * 2) + header.elements * element_size) {
+        std::size_t next_header_offset = (read_offset + METADATA_SIZE + header.elements * element_size) % max_size_bytes;
+        Header *next_header = reinterpret_cast<Header *>(buffer + next_header_offset);
+        assert(next_header->sequence_number == header.sequence_number + 1);
+        if (next_header->in_use.test_and_set(std::memory_order::acquire)) {
+          // We can't alter this packet so we'll have to signal the walk to stop here in the future.
+          logger->error << "[" << header.sequence_number << "] [" << next_header->sequence_number << "] Dequeue: Can't update next header because it's being updated. Walks will stop here." << std::flush;
+          dont_walk_beyond = next_header->sequence_number;
+        } else {
+          // Update the next header for future walkers.
+          next_header->previous_elements = header.elements;
+          next_header->in_use.clear(std::memory_order::release);
+        }
+      }
+      ForwardRead(METADATA_SIZE);
     }
 
     // Get as much real data as we can.
@@ -241,6 +279,9 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
   const std::size_t dequeued_elements = dequeued_bytes / element_size;
   assert(dequeued_elements <= elements);// We should not get more than asked for.
   written_elements -= dequeued_elements;
+  if (dequeued_elements < elements) {
+    elements_to_skip += elements - dequeued_elements;
+  }
   return dequeued_elements;
 }
 
