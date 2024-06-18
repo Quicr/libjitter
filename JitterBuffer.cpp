@@ -185,9 +185,7 @@ std::size_t JitterBuffer::Dequeue(std::uint8_t *destination, const std::size_t &
       ForwardRead(header.elements * element_size);
       skipped_frames += header.elements;
       written_elements -= header.elements;
-      // This counts for a skip.
       elements_to_skip -= header.elements;
-      written_elements -= header.elements;
       continue;
     }
 
